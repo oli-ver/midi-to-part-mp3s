@@ -101,3 +101,21 @@ Assuming you use the virtual env run all unit tests by calling the following com
 * tests/fixtures/Schubert-872-sanctus.mid – does not have a separate tempo map, therefore exercises our internal midi rewrite features
 * tests/fixtures/Brahms-Da-unten-im-Tale.mid - Another SATB example for general testing
 * tests/fixtures/Abendlied-Rheinberger.xml - MusicXML example to test conversion and SSAATTBB track generation
+
+### Web App Development
+
+Start the application in development mode (will reload automatically on code changes):
+`$ FLASK_APP=webapp/app.py FLASK_DEBUG=1 flask run`
+
+Open the url http://127.0.0.1:5000/ in a browser. Code changes will be reloaded automatically.
+
+### Run web app in Docker
+Install [Docker (community) edition](https://www.docker.com/docker-community) for your system
+
+Build the docker container:
+`docker build --tag=midi-to-part-mp3 .`
+
+Start the container (in this example publish on port 4000):
+`docker run -p 4000:80 midi-to-part-mp3`
+
+Open the url http://127.0.0.1:4000 in a browser.
