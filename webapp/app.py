@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, send_file, Response
-from werkzeug import FileStorage
+from werkzeug.datastructures import FileStorage
 from zipfile import ZipFile
 import uuid
 import os
@@ -101,17 +101,18 @@ def _send_zip_file(folder_to_zip: str, output_folder: str):
     
     #send_file is based on the web app directory, therefore need to access file absolute
     return send_file(os.path.abspath(zip_file_name), mimetype='application/zip',
-                     attachment_filename='part-mp3s.zip',
-                     as_attachment=True)
+                     download_name='part-mp3s.zip',
+                     as_attachment=True, max_age=300)
 
 
 def _list_append_track_id(argument_list: List[str], parameter: str, track_id_list: List[str]) -> None:
     if(track_id_list):
         argument_list.append("--%s" % parameter)
+        track_id_int = []
         for track_id in track_id_list:
             # need to advance ID by 1 (midi track will have tempo map at track 0)
-            midi_id = int(track_id) + 1
-            argument_list.append(str(midi_id))
+            track_id_int.append(str(int(track_id) + 1))
+        argument_list.append(",".join(track_id_int))
 
 
 def _single_append_argument(argument_list: List[str], parameter: str, value: str) -> None:

@@ -1,9 +1,9 @@
 # Use an official Python runtime as a parent image
-FROM python:3.7.3-slim-stretch
+FROM python:3.10.7-slim-buster
 
 # Install fluidsynth and lame
 RUN apt-get update
-RUN apt-get install -y fluidsynth lame sox libsox-fmt-mp3 timidity
+RUN apt-get install -y fluidsynth lame sox libsox-fmt-mp3 timidity libjpeg-dev zlib1g-dev
 
 # Set the working directory to /app
 WORKDIR /app

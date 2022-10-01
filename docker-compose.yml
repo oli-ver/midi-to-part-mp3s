@@ -1,0 +1,19 @@
+version: '3.7'
+
+services:
+
+  app:
+    build: .
+    restart: always
+    environment:
+      - VIRTUAL_HOST=midi-to-part-mp3s.nyklang.de
+      - LETSENCRYPT_HOST=midi-to-part-mp3s.nyklang.de
+      - PYTHONUNBUFFERED=1
+    networks:
+      default:
+      proxy:
+networks:
+    default:
+    proxy:
+      external:
+        name: nginx-proxy_default
