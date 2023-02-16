@@ -3,4 +3,4 @@ mido==1.2.10
 music21==8.1.0
 pycodestyle==2.9.1
 sox==1.4.1
-Werkzeug==2.2.2
+Werkzeug==2.2.3
