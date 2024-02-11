@@ -29,6 +29,12 @@ WORKDIR /app
 RUN apt-get remove -y wget p7zip
 RUN apt-get clean
 
+
+FROM base as test
+CMD ["python", "-m", "unittest", "discover", "-s", "tests/", "-p" ,"test*.py"]
+
+FROM base as production
+
 # Make port 80 available to the world outside this container
 EXPOSE 80
 # Run app.py when the container launches
