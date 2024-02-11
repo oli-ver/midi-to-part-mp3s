@@ -4,7 +4,6 @@ soundfonts/*.sf2
 tmp/
 
 # Editors, support code
-.vscode
 .mypy_cache
 
 # Python virtual environments
