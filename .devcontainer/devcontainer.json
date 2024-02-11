@@ -1,0 +1,9 @@
+{
+	"image": "mcr.microsoft.com/devcontainers/universal:2",
+	"features": {
+		"ghcr.io/devcontainers-contrib/features/apt-packages:1": {
+            "packages": "fluidsynth,lame,sox,libsox-fmt-mp3,timidity,libjpeg-dev,zlib1g-dev,wget,p7zip"
+        }
+	}
+	 
+}
