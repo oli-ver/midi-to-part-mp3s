@@ -1,5 +1,5 @@
 # Use an official Python runtime as a parent image
-FROM python:3.10.7-slim-buster as base
+FROM python:3.11.4-slim-buster as base
 
 # Install fluidsynth and lame
 RUN apt-get update
