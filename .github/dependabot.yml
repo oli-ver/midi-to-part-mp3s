@@ -21,3 +21,11 @@ updates:
       version-updates:
         patterns:
           - "*"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      version-updates:
+        patterns:
+          - "*"
