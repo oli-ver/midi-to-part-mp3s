@@ -1,15 +1,6 @@
 services:
-
   app:
-    build: .
+    image: ghcr.io/oli-ver/midi-to-part-mp3s
+    ports:
+      - "4000:80"
     restart: always
-    env_file:
-      - .env
-    networks:
-      default:
-      proxy:
-networks:
-    default:
-    proxy:
-      external:
-        name: nginx-proxy_default

@@ -113,14 +113,40 @@ Start the application in development mode (will reload automatically on code cha
 
 Open the url <http://127.0.0.1:5000/> in a browser. Code changes will be reloaded automatically.
 
-#### Run web app in Docker
+### Running with Docker
 
-Install [Docker (community) edition](https://www.docker.com/docker-community) for your system
+A pre-built Docker image is published to the GitHub Container Registry. This is the
+easiest way to run the web app — no need to install Python, Fluidsynth, Lame, or SoX
+on your machine.
 
-Build the docker container:
-`docker build --tag=midi-to-part-mp3 .`
+#### Docker
 
-Start the container (in this example publish on port 4000):
-`docker run -p 4000:80 midi-to-part-mp3`
+Pull and run the image, publishing the container's port 80 to a local port of your
+choice (e.g. 4000):
 
-Open the url <http://127.0.0.1:4000> in a browser.
+```bash
+docker run -p 4000:80 ghcr.io/oli-ver/midi-to-part-mp3s
+```
+
+Open <http://127.0.0.1:4000> in a browser.
+
+#### Docker Compose
+
+The repository includes a `docker-compose.yml` that uses the published image and
+exposes port 4000:
+
+```bash
+docker compose up
+```
+
+Open <http://127.0.0.1:4000> in a browser. Adjust the port mapping in
+`docker-compose.yml` if you need a different local port.
+
+#### Building the image locally
+
+If you prefer to build the image yourself instead of pulling the pre-built one:
+
+```bash
+docker build --tag=midi-to-part-mp3 .
+docker run -p 4000:80 midi-to-part-mp3
+```
