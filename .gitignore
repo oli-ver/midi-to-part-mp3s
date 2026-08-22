@@ -1,5 +1,6 @@
 # Project
 output/
+.env
 soundfonts/*.sf2
 tmp/
 
