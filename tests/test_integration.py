@@ -25,7 +25,7 @@ class TestIntegration(unittest.TestCase):
         self.assertTrue(os.path.isfile(all_parts_mp3_output))
 
     def test_midi_without_separate_tempo_map(self):
-        midi_file_path = "-f ./tests/fixtures/Brahms-Da-unten-im-Tale.mid"
+        midi_file_path = "-f ./tests/fixtures/Brahms-Da-unten-im-Tale.mid -in 76"
         cmd = "./midi-to-part-mp3s {}".format(midi_file_path)
         os.system(cmd)
 
