@@ -34,18 +34,6 @@ const mappings = [
     dest: 'static/vendor/bootstrap/css/bootstrap.min.css'
   },
   {
-    src: [
-      'node_modules/bootstrap/dist/css/bootstrap-theme.min.css'
-    ],
-    dest: 'static/vendor/bootstrap/css/bootstrap-theme.min.css'
-  },
-  {
-    src: [
-      'node_modules/bootstrap/dist/js/bootstrap.min.js'
-    ],
-    dest: 'static/vendor/bootstrap/js/bootstrap.min.js'
-  },
-  {
     // opensheetmusicdisplay path may vary between versions
     src: [
       'node_modules/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js',
