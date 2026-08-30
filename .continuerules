@@ -1,0 +1,18 @@
+# Continue-specific tool guidance
+
+## How the `edit_existing_file` tool works
+
+The `edit_existing_file` tool writes the `changes` parameter **as the new file
+content** — it is not a diff/patch. Passing a partial snippet will replace the
+file's content with just that snippet and drop the rest of the file.
+
+Therefore:
+
+1. **Prefer `single_find_and_replace`** for small, targeted changes (changing a
+   line, renaming a path, etc.).
+2. Only use `edit_existing_file` for whole-file rewrites, and then provide the
+   **complete new file content** — do not elide existing parts with
+   "existing code" placeholders.
+3. **After every edit, verify the result**: read the file back and run
+   `git diff`. If the diff shows unexpected deletions, restore the file with
+   `git restore -- <file>` and redo the change with `single_find_and_replace`.
