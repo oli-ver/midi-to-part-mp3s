@@ -21,10 +21,12 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install dependencies and build vendor files
+      - name: Install dependencies and build vendor files (regenerate lockfile)
         working-directory: webapp
         run: |
-          npm ci || npm install
+          # Remove the placeholder package-lock.json so npm can generate a fresh one
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
           npm run build
 
       - name: Commit any generated files
