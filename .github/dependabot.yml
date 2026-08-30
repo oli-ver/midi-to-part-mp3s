@@ -33,7 +33,9 @@ updates:
     directory: "/webapp"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
-    # Only monitor direct dependencies by default; adjust if you want indirect updates
     allow:
       - dependency-type: "direct"
+    groups:
+      version-updates:
+        patterns:
+          - "*"
