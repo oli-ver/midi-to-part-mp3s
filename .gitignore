@@ -18,3 +18,6 @@ venv
 
 # NPM Modules
 webapp/node_modules
+
+# Vendor files (generated at build time from npm dependencies)
+webapp/static/vendor

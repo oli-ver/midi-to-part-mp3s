@@ -108,6 +108,16 @@ Assuming you use the virtual env run all unit tests by calling the following com
 
 #### Web App Development
 
+The web app serves its front-end libraries (jQuery, Bootstrap, opensheetmusicdisplay)
+from `webapp/static/vendor/`, which is generated from npm dependencies and not checked
+into the repo. Install them once (or after `package.json` changes) before running
+locally:
+
+```bash
+$ cd webapp
+$ npm install   # also runs "npm run build", which copies vendor files into static/vendor
+```
+
 Start the application in development mode (will reload automatically on code changes):
 `$ FLASK_APP=webapp/app.py FLASK_DEBUG=1 flask run`
 
