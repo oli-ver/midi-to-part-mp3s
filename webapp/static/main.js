@@ -24,8 +24,13 @@ $(function () {
                 $('#score-view').text('')
                 var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("score-view");
                 window.musicXml = obj.musicxml
-                osmd.load(obj.musicxml)
-                osmd.render()
+                // OSMD >= 2.0: load() returns a Promise
+                osmd.load(obj.musicxml).then(function () {
+                    osmd.render();
+                }).catch(function (error) {
+                    console.error("Score rendering failed:", error);
+                    $('#js-upload-submit').prop('disabled', false)
+                });
                 $('#midi-track-list').text('')
                 var i;
                 for (i = 0; i < obj.parts.length; i++) {

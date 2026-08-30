@@ -1,4 +1,4 @@
-.panel-primary {
+.row > .card {
     margin-top: 10px;
 }
 
@@ -33,4 +33,21 @@
 
 #errorMessage{
     color: red;
+}
+
+/* Visible drop targets for the drag & drop voice lanes (Bootstrap 5) */
+#midi-track-list,
+#soprano-tracks,
+#alto-tracks,
+#tenor-tracks,
+#bass-tracks {
+    min-height: 4rem;
+    border: 2px dashed var(--bs-border-color);
+    border-radius: .25rem;
+    background-color: var(--bs-body-bg);
+}
+
+.container > .row > .card {
+    padding-left: 0;
+    padding-right: 0;
 }
