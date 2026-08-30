@@ -150,3 +150,10 @@ If you prefer to build the image yourself instead of pulling the pre-built one:
 docker build --tag=midi-to-part-mp3 .
 docker run -p 4000:80 midi-to-part-mp3
 ```
+
+Or use the docker-compose dev configuration:
+
+```bash
+docker-compose -f docker-compose-dev.yml build
+docker-compose -f docker-compose-dev.yml up
+```
