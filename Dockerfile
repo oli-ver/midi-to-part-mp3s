@@ -1,11 +1,13 @@
 # Use an official Node image to build frontend vendor files
 FROM node:18-bullseye-slim as node-build
 WORKDIR /build
-# Copy package manifest and scripts
-COPY webapp/package.json ./webapp/package.json
-COPY webapp/scripts ./webapp/scripts
+# Copy the whole webapp directory so package.json, package-lock.json and scripts are available
+COPY webapp ./webapp
 # Install dependencies and run build (copy vendor files into webapp/static/vendor)
-RUN cd webapp && npm ci --silent && npm run build
+# Use npm ci when a lockfile is present for reproducible installs; fall back to npm install otherwise
+RUN cd webapp && \
+    if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi && \
+    npm run build
 
 # Use an official Python runtime as a parent image
 FROM python:3.14-slim-trixie as base
