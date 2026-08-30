@@ -26,6 +26,13 @@ COPY requirements.txt /app/
 # Install any needed packages specified in requirements.txt
 RUN pip install --trusted-host pypi.python.org -r requirements.txt
 
+# Add sound fonts
+WORKDIR /app/soundfonts
+RUN wget "https://musescore.jeetee.net/rawfiles/Timbres%20of%20Heaven%20(XGM)%204.00(G).7z" -O timbres-of-heaven.7z && \
+    p7zip -d timbres-of-heaven.7z && \
+    mv "Timbres of Heaven (XGM) 4.00(G).sf2" "timbres-of-heaven.sf2" || true && \
+    rm -f *.txt *.7z || true
+
 # Copy the current directory contents into the container at /app
 COPY . /app/
 
@@ -33,12 +40,6 @@ COPY . /app/
 # This will place vendor files at /app/webapp/static/vendor/...
 COPY --from=node-build /build/webapp/static/vendor /app/webapp/static/vendor
 
-# Add sound fonts
-WORKDIR /app/soundfonts
-RUN wget "https://musescore.jeetee.net/rawfiles/Timbres%20of%20Heaven%20(XGM)%204.00(G).7z" -O timbres-of-heaven.7z && \
-    p7zip -d timbres-of-heaven.7z && \
-    mv "Timbres of Heaven (XGM) 4.00(G).sf2" "timbres-of-heaven.sf2" || true && \
-    rm -f *.txt *.7z || true
 WORKDIR /app
 
 # Free up some space
