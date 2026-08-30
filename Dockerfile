@@ -1,5 +1,5 @@
 # Use an official Node image to build frontend vendor files
-FROM node:18-bullseye-slim AS node-build
+FROM node:26-bullseye-slim AS node-build
 WORKDIR /build
 # Copy the whole webapp directory so package.json, package-lock.json and scripts are available
 COPY webapp ./webapp
