@@ -1,5 +1,5 @@
 # Use an official Node image to build frontend vendor files
-FROM node:18-bullseye-slim as node-build
+FROM node:18-bullseye-slim AS node-build
 WORKDIR /build
 # Copy the whole webapp directory so package.json, package-lock.json and scripts are available
 COPY webapp ./webapp
@@ -10,7 +10,7 @@ RUN cd webapp && \
     npm run build
 
 # Use an official Python runtime as a parent image
-FROM python:3.14-slim-trixie as base
+FROM python:3.14-slim-trixie AS base
 
 # Install fluidsynth and lame and other system deps
 RUN apt-get update && \
@@ -44,10 +44,10 @@ WORKDIR /app
 # Free up some space
 RUN apt-get remove -y wget p7zip && apt-get clean || true
 
-FROM base as test
+FROM base AS test
 CMD ["python", "-m", "unittest", "discover", "-s", "tests/", "-p" ,"test*.py"]
 
-FROM base as production
+FROM base AS production
 
 # Make port 80 available to the world outside this container
 EXPOSE 80
