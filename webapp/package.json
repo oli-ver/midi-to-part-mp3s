@@ -1,0 +1,14 @@
+{
+  "name": "midi-to-part-mp3s-webapp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "node ./scripts/copy-vendor.js",
+    "postinstall": "npm run build"
+  },
+  "dependencies": {
+    "jquery": "^3.6.0",
+    "bootstrap": "^3.4.1",
+    "opensheetmusicdisplay": "^1.0.0"
+  }
+}
