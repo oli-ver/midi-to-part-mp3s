@@ -9,6 +9,6 @@
   "dependencies": {
     "jquery": "^4.0.0",
     "bootstrap": "^5.3.8",
-    "opensheetmusicdisplay": "^2.1.2"
+    "opensheetmusicdisplay": "^2.1.3"
   }
 }
