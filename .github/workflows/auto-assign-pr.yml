@@ -1,0 +1,17 @@
+name: Auto-assign PRs
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  assign-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Assign PR to me
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} --add-assignee ${{ github.repository_owner }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
