@@ -10,6 +10,9 @@ jobs:
     permissions:
       pull-requests: write
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Assign PR to me
         run: |
           gh pr edit ${{ github.event.pull_request.number }} --add-assignee ${{ github.repository_owner }}
