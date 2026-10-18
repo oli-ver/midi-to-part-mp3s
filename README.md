@@ -43,7 +43,7 @@ To customize which input tracks are assigned to which voices and certain volume 
 usage: midi-to-part-mp3s [-h]
                          [-csts COMMON_SOLO_TRACKS [COMMON_SOLO_TRACKS ...]]
                          [-s SOPRANO] [-a ALT] [-t TENOR] [-b BASS]
-                         [-iv INSTRUMENTAL_VOLUME]
+                         [-iv INSTRUMENTAL_VOLUME] [-m VOICE_MARGIN]
                          [-i INSTRUMENTAL_ACCOMPANIMENT [INSTRUMENTAL_ACCOMPANIMENT ...]]
                          midifile_path
 
@@ -60,7 +60,11 @@ optional arguments:
   -t TENOR, --tenor TENOR
   -b BASS, --bass BASS
   -iv INSTRUMENTAL_VOLUME, --instrumental-volume INSTRUMENTAL_VOLUME
-                        configure instrumental volume
+                        loudness of the instrumental accompaniment relative to
+                        each other voice, defaults to 2.0
+  -m VOICE_MARGIN, --voice-margin VOICE_MARGIN
+                        how many dB the practised voice is louder than all
+                        other parts together, defaults to 8.0
   -i INSTRUMENTAL_ACCOMPANIMENT [INSTRUMENTAL_ACCOMPANIMENT ...], --instrumental-accompaniment INSTRUMENTAL_ACCOMPANIMENT [INSTRUMENTAL_ACCOMPANIMENT ...]
                         midi tracks that appear in all accompaniment mp3s e.g.
                         piano or orchestra

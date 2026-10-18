@@ -13,6 +13,10 @@ import music21  # type: ignore
 output_directory = './output'
 soundfont_path = "./soundfonts/timbres-of-heaven.sf2"
 sung_parts = ['soprano', 'alto', 'bass', 'tenor']
+# the practised voice is mixed this many dB above all other parts together
+DEFAULT_VOICE_MARGIN_DB = 8.0
+# peak level the mixes are scaled to, safely below clipping
+MIX_PEAK_AMPLITUDE = 0.9
 # instrument choices based off advice given here: http://www3.cpdl.org/wiki/index.php/User:Robert_Urmann
 MAPPING = {
     "soprano": 76,  # pan flute
@@ -29,6 +33,7 @@ class Part:
         self.midi = midi
         self.midi_filepath = midi_filepath
         convert_midi_to_mp3(midi_filepath)
+        self.rms_db, self.peak_db = measure_level(self.mp3_filepath())
 
     def mp3_filepath(self) -> str:
         return self.midi_filepath.replace(".midi", ".mp3")
@@ -148,6 +153,54 @@ def convert_midi_to_mp3(midifile_path: str) -> None:
             "Conversion of {} to mp3 failed".format(midifile_path))
 
 
+def measure_level(mp3_filepath: str):
+    """Measures the loudness of the audible parts of an mp3 file. Rests are
+    removed first, so a voice with many rests is not considered quiet.
+
+    Arguments:
+        mp3_filepath {str} -- path to the mp3 file
+
+    Returns:
+        tuple -- RMS level and peak level in dBFS, (None, None) if silent
+    """
+    result = subprocess.run(
+        ["sox", mp3_filepath, "-n", "silence", "1", "0.05", "0.1%",
+         "-1", "0.05", "0.1%", "stats"],
+        capture_output=True, text=True, check=False)
+    levels = {}
+    for line in result.stderr.splitlines():
+        for key in ("RMS lev dB", "Pk lev dB"):
+            if line.startswith(key):
+                try:
+                    levels[key] = float(line.split()[3])
+                except (IndexError, ValueError):
+                    pass
+    if "RMS lev dB" not in levels or "Pk lev dB" not in levels:
+        return None, None
+    return levels["RMS lev dB"], levels["Pk lev dB"]
+
+
+def loudness_normalizing_gain(part: Part) -> float:
+    """Amplitude factor that brings the part to a common loudness (0 dBFS RMS)"""
+    if part.rms_db is None:
+        return 0.0
+    return 10 ** (-part.rms_db / 20)
+
+
+def mix_parts(solo_parts: List[Part], gains: List[float], output_file_path: str) -> None:
+    """Mixes the parts with the given amplitude factors. All factors are scaled
+    together so the mix cannot clip, which keeps the ratios between the parts.
+    """
+    worst_case_peak = sum(gain * 10 ** (part.peak_db / 20)
+                          for part, gain in zip(solo_parts, gains)
+                          if part.peak_db is not None)
+    scale = MIX_PEAK_AMPLITUDE / worst_case_peak if worst_case_peak > 0 else 1.0
+    combiner = sox.Combiner()
+    # docs https://pysox.readthedocs.io/en/latest/api.html
+    combiner.build([part.mp3_filepath() for part in solo_parts], output_file_path,
+                   'mix', [gain * scale for gain in gains])
+
+
 def change_instrument(midi_data: mido.MidiFile, program_number: int):
     """Changes the instrument in all tracks of the given midi_data
     object to the instrument identified by program_number
@@ -170,38 +223,54 @@ def change_instrument(midi_data: mido.MidiFile, program_number: int):
             track.insert(0, program_change_message)
 
 
-def generate_accompaniment(own_part, solo_parts) -> None:
-    combiner = sox.Combiner()
+def accompaniment_gains(own_part: Part, solo_parts: List[Part],
+                        voice_margin_db: float, instrumental_volume: float) -> List[float]:
+    """Calculates the amplitude factors for a practice mix. All parts are first
+    brought to the same loudness. The other parts are then lowered so that the
+    practised voice is voice_margin_db louder than all of them together, no matter
+    how many voices there are. The instrumental accompaniment is instrumental_volume
+    times as loud as each other voice.
 
-    accompaniment_volume_ratio = 0.33
-    instrumental_volume_ratio = accompaniment_volume_ratio * args.instrumental_volume
-    input_volumes = []
-    input_files = []
+    Returns:
+        List[float] -- amplitude factor per part, in the order of solo_parts
+    """
+    other_voices = [part for part in solo_parts if part.name not in (
+        own_part.name, 'accompaniment') and part.rms_db is not None]
+    has_instrumental = any(part.name == 'accompaniment' and part.rms_db is not None
+                           for part in solo_parts)
+    rest_power = len(other_voices) + \
+        (instrumental_volume ** 2 if has_instrumental else 0)
+    other_gain = 1.0
+    if rest_power > 0:
+        other_gain = 1 / (10 ** (voice_margin_db / 20) * rest_power ** 0.5)
+
+    gains = []
     for part in solo_parts:
-        is_own_part = part.name == own_part.name
-        is_instrumental = part.name == 'accompaniment'
-
-        input_files.append(part.mp3_filepath())
-
-        if is_own_part:
-            input_volumes.append(1.0)
-        elif is_instrumental:
-            input_volumes.append(instrumental_volume_ratio)
+        gain = loudness_normalizing_gain(part)
+        if part.name == own_part.name:
+            gains.append(gain if part.rms_db is not None else 1.0)
+        elif part.name == 'accompaniment':
+            gains.append(gain * other_gain * instrumental_volume)
         else:
-            input_volumes.append(accompaniment_volume_ratio)
+            gains.append(gain * other_gain)
+    return gains
 
+
+def generate_accompaniment(own_part, solo_parts) -> None:
+    gains = accompaniment_gains(own_part, solo_parts, args.voice_margin,
+                                args.instrumental_volume)
     output_file_path = "{}/{} with accompaniment.mp3".format(
         args.output, own_part.name)
-    combiner.build(input_files, output_file_path, 'mix-power', input_volumes)
+    mix_parts(solo_parts, gains, output_file_path)
 
 
 def generate_full_mp3(solo_parts: List[Part]) -> None:
-    combiner = sox.Combiner()
-
-    # docs https://pysox.readthedocs.io/en/latest/api.html
-    input_files = [part.mp3_filepath() for part in solo_parts]
+    # all voices equally loud, the accompaniment as configured
+    gains = [loudness_normalizing_gain(part) *
+             (args.instrumental_volume if part.name == 'accompaniment' else 1.0)
+             for part in solo_parts]
     output_file_path = "{}/all.mp3".format(args.output)
-    combiner.build(input_files, output_file_path, 'mix-power')
+    mix_parts(solo_parts, gains, output_file_path)
 
 
 def has_separate_tempo_map(track0: mido.midifiles.tracks.MidiTrack) -> bool:
@@ -358,7 +427,11 @@ def get_parser() -> argparse.ArgumentParser:
                         help=('instrument that should be used for all voices instead \
                               of the advice given at cpdl.org'))
     parser.add_argument("-iv", "--instrumental-volume",
-                        help="configure instrumental volume", type=float, default=2.0)
+                        help="loudness of the instrumental accompaniment relative to each \
+                              other voice, defaults to 2.0", type=float, default=2.0)
+    parser.add_argument("-m", "--voice-margin", type=float, default=DEFAULT_VOICE_MARGIN_DB,
+                        help="how many dB the practised voice is louder than all other parts \
+                              together, defaults to {}".format(DEFAULT_VOICE_MARGIN_DB))
     parser.add_argument("-i", "--instrumental-accompaniment", help='midi tracks that \
           appear in all accompaniment mp3s e.g. piano or orchestra', nargs='+',
                         type=int, default=[])
