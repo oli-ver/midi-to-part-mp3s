@@ -1,5 +1,6 @@
 """Web app for midi-to-part-mp3s"""
 
+import io
 import os
 from zipfile import ZipFile
 import uuid
@@ -7,9 +8,10 @@ import shutil
 from typing import List
 from inspect import getsourcefile
 import json
-from flask import Flask, render_template, request, send_file
+from flask import Flask, abort, render_template, request, send_file
 from music21 import stream, converter
 from werkzeug.datastructures import FileStorage
+from werkzeug.utils import secure_filename
 
 # import from parent dir according to https://stackoverflow.com/a/9331002
 current_dir = os.path.dirname(os.path.abspath(getsourcefile(lambda: 0)))
@@ -19,6 +21,8 @@ os.sys.path.pop(0)
 
 
 app = Flask(__name__)
+# Reject uploads larger than 20 MB (choir scores are far smaller)
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 
 FILE: str = "file"
 SOPRANO: str = "soprano"
@@ -32,6 +36,7 @@ OUTPUT: str = "output"
 TEMP_FOLDER: str = "tmp"
 OUTPUT_FOLDER: str = "out"
 FILENAME: str = "part-mp3s.zip"
+ALLOWED_EXTENSIONS = (".mid", ".midi", ".mxl", ".musicxml", ".xml")
 
 
 @app.route("/")
@@ -45,15 +50,17 @@ def midi_info():
     """Convert midi to MusicXML"""
 
     random_folder_name = _check_tmp_folder()
-    midi_file_name = _get_musicxml_file(random_folder_name)
-    print(midi_file_name)
-    score: stream.Score = converter.parse(midi_file_name)
-    print(score)
-    musicxml_filename = f"{random_folder_name}/score.musicxml"
-    score.write(fp=musicxml_filename)
-    xml_content = None
-    with open(musicxml_filename, encoding="utf-8") as file_stream:
-        xml_content = file_stream.read()
+    try:
+        midi_file_name = _get_musicxml_file(random_folder_name)
+        app.logger.info("Converting uploaded file %s", midi_file_name)
+        score: stream.Score = converter.parse(midi_file_name)
+        musicxml_filename = f"{random_folder_name}/score.musicxml"
+        score.write(fp=musicxml_filename)
+        xml_content = None
+        with open(musicxml_filename, encoding="utf-8") as file_stream:
+            xml_content = file_stream.read()
+    finally:
+        shutil.rmtree(random_folder_name, ignore_errors=True)
     response_dict = {}
     response_dict["musicxml"] = xml_content
     response_dict["parts"] = []
@@ -74,27 +81,24 @@ def midi_to_mp3():
     bass_tracks = request.form.getlist(BASS)
     instrument_id = request.form.get(INSTRUMENT)
     music_xml = request.form.get(MUSICXML)
-    midi_file_path = _save_musicxml_file(random_folder_name, music_xml)
-
-    print(
-        f"soprano-tracks: {soprano_tracks}, alto_tracks: {alto_tracks}, ",
-        f"tenor_tracks: {tenor_tracks}, bass_tracks: {bass_tracks}, ",
-        f"instrument_id: {instrument_id}, music_xml: {len(music_xml)} characters",
-    )
-
-    output_folder, argument_list = _create_argument_list(
-        midi_file_path,
-        soprano_tracks,
-        alto_tracks,
-        tenor_tracks,
-        bass_tracks,
-        instrument_id,
-        random_folder_name,
-    )
-    print(f"Starting midi_to_part_mp3s with parameter list: {argument_list}")
-    midi_to_part_mp3s.main(argument_list)
-
-    return _send_zip_file(random_folder_name, output_folder)
+    if not music_xml:
+        abort(400, "No MusicXML data received")
+    try:
+        midi_file_path = _save_musicxml_file(random_folder_name, music_xml)
+        output_folder, argument_list = _create_argument_list(
+            midi_file_path,
+            soprano_tracks,
+            alto_tracks,
+            tenor_tracks,
+            bass_tracks,
+            instrument_id,
+            random_folder_name,
+        )
+        app.logger.info("Starting midi_to_part_mp3s with %s", argument_list)
+        midi_to_part_mp3s.main(argument_list)
+        return _send_zip_file(output_folder)
+    finally:
+        shutil.rmtree(random_folder_name, ignore_errors=True)
 
 
 def _create_argument_list(
@@ -118,18 +122,18 @@ def _create_argument_list(
     return output_folder, argument_list
 
 
-def _send_zip_file(folder_to_zip: str, output_folder: str):
-    zip_file_name = f"{folder_to_zip}/{FILENAME}"
-    print(f"Creating zip file: {zip_file_name}")
-    with ZipFile(zip_file_name, "w") as myzip:
+def _send_zip_file(output_folder: str):
+    # Build the zip in memory so the temporary folder can be removed right away
+    zip_buffer = io.BytesIO()
+    with ZipFile(zip_buffer, "w") as myzip:
         for file_name in os.listdir(output_folder):
             myzip.write(os.path.join(output_folder, file_name), file_name)
+    zip_buffer.seek(0)
 
-    # send_file is based on the web app directory, therefore need to access file absolute
     return send_file(
-        os.path.abspath(zip_file_name),
+        zip_buffer,
         mimetype="application/zip",
-        download_name="part-mp3s.zip",
+        download_name=FILENAME,
         as_attachment=True,
         max_age=300,
     )
@@ -155,9 +159,8 @@ def _single_append_argument(
         argument_list.append(value)
 
 
-def _check_tmp_folder() -> None:
-    if os.path.exists(TEMP_FOLDER):
-        shutil.rmtree(TEMP_FOLDER)
+def _check_tmp_folder() -> str:
+    # Only create this request's own folder; other requests may still be running
     random_folder_name = uuid.uuid4()
     tmp_folder = f"{TEMP_FOLDER}/{random_folder_name}"
     os.makedirs(tmp_folder)
@@ -165,28 +168,26 @@ def _check_tmp_folder() -> None:
 
 
 def _get_musicxml_file(temp_folder: str) -> str:
-    music_xml_path = None
-    try:
-        midi_file: FileStorage = request.files[FILE]
-        if not os.path.exists(temp_folder):
-            os.makedirs(temp_folder)
-        music_xml_path = os.path.join(temp_folder, midi_file.filename)
-        midi_file.save(music_xml_path)
-    except Exception as e:  # pylint: disable=W0718
-        print(f"File could not be fetched from the request: {e}")
+    midi_file: FileStorage = request.files.get(FILE)
+    if midi_file is None:
+        abort(400, "No file uploaded")
+    # Never trust the client file name: it may contain path components like "../"
+    file_name = secure_filename(midi_file.filename or "")
+    if not file_name.lower().endswith(ALLOWED_EXTENSIONS):
+        abort(400, "Only midi or MusicXML files are supported")
+    if not os.path.exists(temp_folder):
+        os.makedirs(temp_folder)
+    music_xml_path = os.path.join(temp_folder, file_name)
+    midi_file.save(music_xml_path)
     return music_xml_path
 
 
 def _save_musicxml_file(temp_folder: str, music_xml: str) -> str:
-    music_xml_path = None
-    try:
-        if not os.path.exists(temp_folder):
-            os.makedirs(temp_folder)
-        music_xml_path = os.path.join(temp_folder, "temp.musicxml")
-        with open(music_xml_path, "w", encoding="utf-8") as file_stream:
-            file_stream.write(music_xml)
-    except Exception as e:  # pylint: disable=W0718
-        print(f"musicXML could not be fetched from the request: {e}")
+    if not os.path.exists(temp_folder):
+        os.makedirs(temp_folder)
+    music_xml_path = os.path.join(temp_folder, "temp.musicxml")
+    with open(music_xml_path, "w", encoding="utf-8") as file_stream:
+        file_stream.write(music_xml)
     return music_xml_path
 
 

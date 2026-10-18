@@ -3,6 +3,7 @@ import argparse
 import os
 import sys
 import shutil
+import subprocess
 from typing import List, Dict
 
 import sox  # type: ignore
@@ -132,10 +133,19 @@ def convert_midi_to_mp3(midifile_path: str) -> None:
         None -- does not return anything. The file is created on the file system using fluidsynth
     """
     output_base_filename = os.path.splitext(midifile_path)[0]
-    # TODO: Hide output unless debug option on... probably need subprocess.run
-    os.system("fluidsynth -r 44100 -R 1 -E little -T raw -F - -O s16 '{}' '{}' | lame --signed -s 44100 -r - '{}.mp3'".format(
-        soundfont_path, midifile_path, output_base_filename
-    ))
+    # Arguments are passed as lists (no shell), so file names cannot inject commands
+    fluidsynth = subprocess.Popen(
+        ["fluidsynth", "-r", "44100", "-R", "1", "-E", "little", "-T", "raw",
+         "-F", "-", "-O", "s16", soundfont_path, midifile_path],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    lame = subprocess.run(
+        ["lame", "--quiet", "--signed", "-s", "44100", "-r", "-",
+         "{}.mp3".format(output_base_filename)],
+        stdin=fluidsynth.stdout, check=False)
+    fluidsynth.stdout.close()
+    if fluidsynth.wait() != 0 or lame.returncode != 0:
+        raise RuntimeError(
+            "Conversion of {} to mp3 failed".format(midifile_path))
 
 
 def change_instrument(midi_data: mido.MidiFile, program_number: int):

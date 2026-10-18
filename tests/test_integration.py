@@ -19,7 +19,7 @@ class TestIntegration(unittest.TestCase):
     def test_conversion_of_midi_with_separate_tempo_map(self):
         midi_file_path = "-f ./tests/fixtures/Schumann-op67-4.mid"
         cmd = "./midi-to-part-mp3s {}".format(midi_file_path)
-        os.system(cmd)
+        self.assertEqual(os.system(cmd), 0)
 
         all_parts_mp3_output = "{}/all.mp3".format(output_directory)
         self.assertTrue(os.path.isfile(all_parts_mp3_output))
@@ -27,7 +27,7 @@ class TestIntegration(unittest.TestCase):
     def test_midi_without_separate_tempo_map(self):
         midi_file_path = "-f ./tests/fixtures/Brahms-Da-unten-im-Tale.mid -in 76"
         cmd = "./midi-to-part-mp3s {}".format(midi_file_path)
-        os.system(cmd)
+        self.assertEqual(os.system(cmd), 0)
 
         audio_lengths = []
         for output_file in ['soprano 1', 'alto 1', 'bass 1', 'tenor 1']:

@@ -81,11 +81,19 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Remove test tag
-      - name: Remove test tag
-        if: ${{ github.event_name != 'pull_request' }}
+      # Run unit and integration tests in the test image (also on pull requests)
+      - name: Run tests
         run: |
-          docker run --rm "${{ env.TEST_TAG }}" 
+          docker run --rm "${{ env.TEST_TAG }}"
+
+      # Check python and npm dependencies for known vulnerabilities
+      - name: Audit python dependencies
+        run: |
+          docker run --rm "${{ env.TEST_TAG }}" sh -c "pip install --quiet pip-audit && pip-audit -r requirements.txt"
+
+      - name: Audit npm dependencies
+        run: |
+          cd webapp && npm audit --omit=dev --audit-level=high
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
