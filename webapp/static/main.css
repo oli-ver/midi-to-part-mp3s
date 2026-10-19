@@ -52,3 +52,27 @@
     padding-left: 0;
     padding-right: 0;
 }
+
+/* info button and overlay (native popover, Bootstrap's JavaScript is not loaded) */
+.info-button {
+    flex-shrink: 0;
+    margin-left: .25rem;
+    width: 1.4rem;
+    height: 1.4rem;
+    padding: 0;
+    border: 1px solid var(--bs-primary);
+    border-radius: 50%;
+    background: none;
+    color: var(--bs-primary);
+    font-weight: bold;
+    font-style: italic;
+    line-height: 1;
+}
+
+.info-popover {
+    max-width: 26rem;
+    padding: 1rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .15);
+}
