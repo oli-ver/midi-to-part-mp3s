@@ -23,11 +23,18 @@ $(function () {
             success: function (response) {
                 var obj = JSON.parse(response);
                 $('#score-view').text('')
-                var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("score-view");
+                // compact mode leaves out the title and composer music21 fills in ("Music21 Fragment")
+                var osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("score-view", {
+                    drawingParameters: "compact"
+                });
                 window.musicXml = obj.musicxml
                 // OSMD >= 2.0: load() returns a Promise
                 osmd.load(obj.musicxml).then(function () {
+                    // draw smaller on narrow screens so several bars fit on one line
+                    var scoreWidth = document.getElementById('score-view').clientWidth;
+                    osmd.zoom = Math.max(0.4, Math.min(1, scoreWidth / 1000));
                     osmd.render();
+                    $('#score-view').addClass('score-view-rendered');
                 }).catch(function (error) {
                     console.error("Score rendering failed:", error);
                     $('#js-upload-submit').prop('disabled', false)
