@@ -2,10 +2,13 @@
 
 import io
 import os
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import time
 from zipfile import ZipFile
 import uuid
 import shutil
-from typing import List
+from typing import Dict, List
 from inspect import getsourcefile
 import json
 from flask import Flask, abort, render_template, request, send_file
@@ -17,6 +20,7 @@ from werkzeug.utils import secure_filename
 current_dir = os.path.dirname(os.path.abspath(getsourcefile(lambda: 0)))
 os.sys.path.insert(0, current_dir[: current_dir.rfind(os.path.sep)])
 import midi_to_part_mp3s # pylint: disable=C0413
+from progress import ProgressTracker # pylint: disable=C0413
 os.sys.path.pop(0)
 
 
@@ -37,6 +41,26 @@ TEMP_FOLDER: str = "tmp"
 OUTPUT_FOLDER: str = "out"
 FILENAME: str = "part-mp3s.zip"
 ALLOWED_EXTENSIONS = (".mid", ".midi", ".mxl", ".musicxml", ".xml")
+# conversions running at the same time, further jobs wait in a queue
+MAX_PARALLEL_JOBS = int(os.environ.get("MAX_PARALLEL_JOBS", "2"))
+# finished jobs are deleted after this many seconds, even if never downloaded
+JOB_RETENTION_S = 15 * 60
+
+
+class Job:
+    """A conversion running in the background"""
+
+    def __init__(self, folder: str):
+        self.folder = folder
+        self.status = "queued"
+        self.progress = ProgressTracker()
+        self.zip_path = None
+        self.finished = None
+
+
+jobs: Dict[str, Job] = {}
+jobs_lock = threading.Lock()
+executor = ThreadPoolExecutor(max_workers=MAX_PARALLEL_JOBS)
 
 
 @app.route("/")
@@ -75,30 +99,102 @@ def midi_to_mp3():
     """Generate mp3 from midi"""
 
     random_folder_name = _check_tmp_folder()
-    soprano_tracks = request.form.getlist(SOPRANO)
-    alto_tracks = request.form.getlist(ALTO)
-    tenor_tracks = request.form.getlist(TENOR)
-    bass_tracks = request.form.getlist(BASS)
-    instrument_id = request.form.get(INSTRUMENT)
-    music_xml = request.form.get(MUSICXML)
-    if not music_xml:
-        abort(400, "No MusicXML data received")
     try:
-        midi_file_path = _save_musicxml_file(random_folder_name, music_xml)
-        output_folder, argument_list = _create_argument_list(
-            midi_file_path,
-            soprano_tracks,
-            alto_tracks,
-            tenor_tracks,
-            bass_tracks,
-            instrument_id,
-            random_folder_name,
-        )
+        output_folder, argument_list = _arguments_from_form(random_folder_name)
         app.logger.info("Starting midi_to_part_mp3s with %s", argument_list)
         midi_to_part_mp3s.main(argument_list)
         return _send_zip_file(output_folder)
     finally:
         shutil.rmtree(random_folder_name, ignore_errors=True)
+
+
+@app.route("/jobs", methods=["POST"])
+def create_job():
+    """Start generating the mp3s in the background and return the job id"""
+
+    _remove_expired_jobs()
+    random_folder_name = _check_tmp_folder()
+    try:
+        output_folder, argument_list = _arguments_from_form(random_folder_name)
+    except Exception:
+        shutil.rmtree(random_folder_name, ignore_errors=True)
+        raise
+    job_id = os.path.basename(random_folder_name)
+    job = Job(random_folder_name)
+    with jobs_lock:
+        jobs[job_id] = job
+    app.logger.info("Queueing job %s with %s", job_id, argument_list)
+    executor.submit(_run_job, job, output_folder, argument_list)
+    return {"id": job_id}, 202
+
+
+@app.route("/jobs/<job_id>")
+def job_status(job_id: str):
+    """Return the state, the percentage done and the estimated remaining seconds"""
+
+    job = _get_job(job_id)
+    return {"status": job.status, **job.progress.snapshot()}
+
+
+@app.route("/jobs/<job_id>/download")
+def job_download(job_id: str):
+    """Send the zip file of a finished job"""
+
+    job = _get_job(job_id)
+    if job.status != "done":
+        abort(409, "The job is not finished")
+    return send_file(job.zip_path, mimetype="application/zip",
+                     download_name=FILENAME, as_attachment=True)
+
+
+def _run_job(job: Job, output_folder: str, argument_list: List[str]) -> None:
+    job.status = "running"
+    try:
+        midi_to_part_mp3s.main(argument_list, job.progress)
+        # absolute, as send_file resolves relative paths against the app folder
+        zip_path = os.path.abspath(f"{job.folder}/{FILENAME}")
+        _write_zip_file(output_folder, zip_path)
+        shutil.rmtree(output_folder, ignore_errors=True)
+        job.zip_path = zip_path
+        job.status = "done"
+    except Exception:  # pylint: disable=W0718
+        app.logger.exception("Job in %s failed", job.folder)
+        shutil.rmtree(job.folder, ignore_errors=True)
+        job.status = "failed"
+    job.finished = time.monotonic()
+
+
+def _get_job(job_id: str) -> Job:
+    with jobs_lock:
+        job = jobs.get(job_id)
+    if job is None:
+        abort(404, "Unknown job")
+    return job
+
+
+def _remove_expired_jobs() -> None:
+    now = time.monotonic()
+    with jobs_lock:
+        expired = [job_id for job_id, job in jobs.items()
+                   if job.finished and now - job.finished > JOB_RETENTION_S]
+        for job_id in expired:
+            shutil.rmtree(jobs.pop(job_id).folder, ignore_errors=True)
+
+
+def _arguments_from_form(random_folder_name: str):
+    music_xml = request.form.get(MUSICXML)
+    if not music_xml:
+        abort(400, "No MusicXML data received")
+    midi_file_path = _save_musicxml_file(random_folder_name, music_xml)
+    return _create_argument_list(
+        midi_file_path,
+        request.form.getlist(SOPRANO),
+        request.form.getlist(ALTO),
+        request.form.getlist(TENOR),
+        request.form.getlist(BASS),
+        request.form.get(INSTRUMENT),
+        random_folder_name,
+    )
 
 
 def _create_argument_list(
@@ -122,12 +218,16 @@ def _create_argument_list(
     return output_folder, argument_list
 
 
+def _write_zip_file(output_folder: str, target) -> None:
+    with ZipFile(target, "w") as myzip:
+        for file_name in os.listdir(output_folder):
+            myzip.write(os.path.join(output_folder, file_name), file_name)
+
+
 def _send_zip_file(output_folder: str):
     # Build the zip in memory so the temporary folder can be removed right away
     zip_buffer = io.BytesIO()
-    with ZipFile(zip_buffer, "w") as myzip:
-        for file_name in os.listdir(output_folder):
-            myzip.write(os.path.join(output_folder, file_name), file_name)
+    _write_zip_file(output_folder, zip_buffer)
     zip_buffer.seek(0)
 
     return send_file(
