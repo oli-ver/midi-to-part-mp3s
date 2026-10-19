@@ -1,5 +1,5 @@
 # Use an official Node image to build frontend vendor files
-FROM node:26-bullseye-slim AS node-build
+FROM node:26-trixie-slim AS node-build
 WORKDIR /build
 # Copy the whole webapp directory so package.json, package-lock.json and scripts are available
 COPY webapp ./webapp
@@ -24,14 +24,17 @@ WORKDIR /app
 COPY requirements.txt /app/
 
 # Install any needed packages specified in requirements.txt
-RUN pip install --trusted-host pypi.python.org -r requirements.txt
+RUN pip install -r requirements.txt
 
 # Add sound fonts
 WORKDIR /app/soundfonts
+# Fail the build if the download fails or the archive is not the expected one
+ARG SOUNDFONT_SHA256=e5cdfbfc85def9ee59dbd72bc17878dbd8a3a0a8159755fd594ad8b6c3ee4a9c
 RUN wget "https://musescore.jeetee.net/rawfiles/Timbres%20of%20Heaven%20(XGM)%204.00(G).7z" -O timbres-of-heaven.7z && \
+    echo "${SOUNDFONT_SHA256}  timbres-of-heaven.7z" | sha256sum -c - && \
     p7zip -d timbres-of-heaven.7z && \
-    mv "Timbres of Heaven (XGM) 4.00(G).sf2" "timbres-of-heaven.sf2" || true && \
-    rm -f *.txt *.7z || true
+    mv "Timbres of Heaven (XGM) 4.00(G).sf2" "timbres-of-heaven.sf2" && \
+    rm -f *.txt *.7z
 
 # Copy the current directory contents into the container at /app
 COPY . /app/
@@ -50,7 +53,13 @@ CMD ["python", "-m", "unittest", "discover", "-s", "tests/", "-p" ,"test*.py"]
 
 FROM base AS production
 
-# Make port 80 available to the world outside this container
-EXPOSE 80
-# Run app.py when the container launches
-CMD ["python", "webapp/app.py"]
+# Run as an unprivileged user that may only write the upload folder
+RUN useradd --create-home --uid 10001 app && \
+    mkdir -p /app/tmp && chown app:app /app/tmp
+USER app
+
+# Unprivileged users can't bind port 80, so listen on 8080 (or $PORT if the host sets it)
+ENV PORT=8080
+EXPOSE 8080
+# One worker only: the job progress lives in memory, threads run requests in parallel
+CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT} --workers 1 --threads 8 --pythonpath webapp app:app"]
