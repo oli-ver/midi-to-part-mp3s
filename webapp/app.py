@@ -1,5 +1,6 @@
 """Web app for midi-to-part-mp3s"""
 
+import argparse
 import io
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -37,6 +38,7 @@ INSTRUMENT: str = "instrument"
 ACCOMPANIMENT: str = "accompaniment"
 VOICE_MARGIN: str = "voice_margin"
 ACCOMPANIMENT_VOLUME: str = "accompaniment_volume"
+SLOW_TEMPO: str = "slow_tempo"
 MUSICXML: str = "musicxml"
 OUTPUT: str = "output"
 
@@ -203,6 +205,7 @@ def _arguments_from_form(random_folder_name: str):
         request.form.getlist(ACCOMPANIMENT),
         _decibel_from_form(VOICE_MARGIN, VOICE_MARGIN_RANGE_DECIBEL),
         _decibel_from_form(ACCOMPANIMENT_VOLUME, ACCOMPANIMENT_VOLUME_RANGE_DECIBEL),
+        _slow_tempo_from_form(),
     )
 
 
@@ -220,6 +223,17 @@ def _decibel_from_form(parameter: str, allowed_range):
     return decibel_value
 
 
+def _slow_tempo_from_form():
+    """Returns the percentage of the slower version, or None if none is wanted"""
+    value = request.form.get(SLOW_TEMPO)
+    if not value:
+        return None
+    try:
+        return midi_to_part_mp3s.slow_tempo_percent(value)
+    except argparse.ArgumentTypeError as error:
+        abort(400, f"{SLOW_TEMPO}: {error}")
+
+
 def _create_argument_list(
     midi_file_path: str,
     soprano_tracks,
@@ -231,6 +245,7 @@ def _create_argument_list(
     accompaniment_tracks=None,
     voice_margin_decibel=None,
     accompaniment_volume_decibel=None,
+    slow_tempo=None,
 ) -> List[str]:
     argument_list: List[str] = ["-f", midi_file_path]
     _list_append_track_id(argument_list, SOPRANO, soprano_tracks)
@@ -249,6 +264,8 @@ def _create_argument_list(
         # the slider is in dB, the command line expects an amplitude factor
         argument_list.extend(["--instrumental-volume",
                               str(midi_to_part_mp3s.decibel_to_amplitude(accompaniment_volume_decibel))])
+    if slow_tempo:
+        argument_list.extend(["--slow-tempo", str(slow_tempo)])
 
     output_folder = f"{random_folder_name}/{OUTPUT_FOLDER}"
     _single_append_argument(argument_list, OUTPUT, output_folder)

@@ -97,6 +97,28 @@ class TestWebapp(unittest.TestCase):
         self.assertIn("soprano 1 with accompaniment.mp3", names)
         response.close()
 
+    def test_job_with_slow_tempo_adds_slower_files(self):
+        musicxml = json.loads(self._upload("Brahms.mid").data)["musicxml"]
+        response = self.client.post("/jobs", data={
+            "soprano": "0", "alto": "1", "tenor": "2", "bass": "3",
+            "slow_tempo": "75", "musicxml": musicxml},
+            content_type="multipart/form-data")
+        job_id = json.loads(response.data)["id"]
+        self.assertEqual(self._wait_for_job(job_id)["status"], "done")
+        response = self.client.get(f"/jobs/{job_id}/download")
+        names = zipfile.ZipFile(io.BytesIO(response.data)).namelist()
+        self.assertIn("soprano 1 with accompaniment.mp3", names)
+        self.assertIn("soprano 1 with accompaniment (75% tempo).mp3", names)
+        self.assertIn("all (75% tempo).mp3", names)
+        response.close()
+
+    def test_job_with_invalid_slow_tempo_is_rejected(self):
+        for value in ["100", "abc"]:
+            response = self.client.post("/jobs", data={
+                "soprano": "0", "slow_tempo": value, "musicxml": "<score/>"},
+                content_type="multipart/form-data")
+            self.assertEqual(response.status_code, 400)
+
     def test_failed_job_is_reported(self):
         response = self.client.post("/jobs", data={
             "soprano": "0", "musicxml": "not a score"},
