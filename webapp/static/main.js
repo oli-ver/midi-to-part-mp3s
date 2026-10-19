@@ -186,4 +186,6 @@ function drop(event) {
     event.preventDefault();
     let data = event.dataTransfer.getData("text");
     event.target.appendChild(document.getElementById(data));
+    // the accompaniment volume only matters once a track is in Accompaniment
+    $('#accompaniment-volume-setting').toggleClass('d-none', $('#accompaniment-tracks li').length === 0)
 }
