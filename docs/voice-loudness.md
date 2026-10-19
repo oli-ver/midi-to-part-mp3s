@@ -12,23 +12,23 @@ So the volumes are now calculated from measurements instead of being fixed.
 
 ### Logarithm to base 10
 
-`log10(x)` answers the question "10 to the power of what gives x?":
+$`\log_{10}(x)`$ answers the question "10 to the power of what gives x?":
 
 | x | 1 | 2 | 3 | 10 | 100 | 1000 |
 |---|---|---|---|---|---|---|
-| log10(x) | 0 | 0.30 | 0.48 | 1 | 2 | 3 |
+| $`\log_{10}(x)`$ | 0 | 0.30 | 0.48 | 1 | 2 | 3 |
 
-It turns multiplication into addition: `log10(a * b) = log10(a) + log10(b)`, and `log10(a²) = 2 * log10(a)`.
+It turns multiplication into addition: $`\log_{10}(a \cdot b) = \log_{10}(a) + \log_{10}(b)`$, and $`\log_{10}(a^2) = 2 \cdot \log_{10}(a)`$.
 
 ### Decibel (dB)
 
 Our ears don't perceive loudness linearly: twice the sound energy sounds only "a bit louder", not twice as loud. That is why loudness differences are given on a logarithmic scale, in decibels. A decibel always describes a **ratio** of two energies:
 
-```
-difference in dB = 10 * log10(energy 1 / energy 2)
+```math
+\text{difference in dB} = 10 \cdot \log_{10}\left(\frac{\text{energy}_1}{\text{energy}_2}\right)
 ```
 
-The 10 comes from the definition: a "bel" is `log10` of the energy ratio, and a decibel is a tenth of a bel. Some useful values:
+The 10 comes from the definition: a "bel" is $`\log_{10}`$ of the energy ratio, and a decibel is a tenth of a bel. Some useful values:
 
 | energy ratio | 2x | 3x | 4x | 10x | 100x |
 |---|---|---|---|---|---|
@@ -42,14 +42,14 @@ In the program we don't change energies directly. We multiply the audio samples,
 
 Putting this into the decibel formula:
 
-```
-dB = 10 * log10(amplitude²) = 2 * 10 * log10(amplitude) = 20 * log10(amplitude)
+```math
+\text{dB} = 10 \cdot \log_{10}(\text{amplitude}^2) = 2 \cdot 10 \cdot \log_{10}(\text{amplitude}) = 20 \cdot \log_{10}(\text{amplitude})
 ```
 
 So for amplitude factors the formula has 20 instead of 10. The 20 is not a tuning value, it follows from the definition. Solved for the factor:
 
-```
-amplitude factor = 10^(dB / 20)
+```math
+\text{amplitude factor} = 10^{\text{dB} / 20}
 ```
 
 In the code this is the function `db_to_amplitude`. Examples: +6 dB is a factor of 2, -20 dB a factor of 0.1, -9.6 dB a factor of 0.33.
@@ -62,28 +62,28 @@ After each voice has been rendered to its own mp3, its average loudness (RMS lev
 
 ### 2. Bring all voices to the same loudness
 
-Each voice is multiplied by `10^(-level / 20)`, which lifts it to 0 dB (`loudness_normalizing_gain`). Example:
+Each voice is multiplied by $`10^{-\text{level} / 20}`$, which lifts it to 0 dB (`loudness_normalizing_gain`). Example:
 
 | voice | measured level | needed change | factor |
 |---|---|---|---|
-| alto | -46 dB | +46 dB | 10^(46/20) ≈ 200 |
-| bass | -26 dB | +26 dB | 10^(26/20) = 20 |
+| alto | -46 dB | +46 dB | $`10^{46/20} \approx 200`$ |
+| bass | -26 dB | +26 dB | $`10^{26/20} = 20`$ |
 
 Afterwards all voices are equally loud. The large factors are no problem because everything is scaled down together in step 4.
 
 ### 3. Lower the other voices
 
-Independent voices add up their **energies**. Three equally loud voices together have three times the energy of one voice, so they are `10 * log10(3) ≈ 4.8 dB` louder than one of them. With `n` other voices the rest is `10 * log10(n)` dB louder than a single voice.
+Independent voices add up their **energies**. Three equally loud voices together have three times the energy of one voice, so they are $`10 \cdot \log_{10}(3) \approx 4.8`$ dB louder than one of them. With $`n`$ other voices the rest is $`10 \cdot \log_{10}(n)`$ dB louder than a single voice.
 
 The goal is that the practised voice is `margin` dB (default 8, option `-m`) louder than **all other parts together**. So each other voice is lowered by:
 
-```
-margin + 10 * log10(n)
+```math
+\text{margin} + 10 \cdot \log_{10}(n)
 ```
 
-For a SATB choir (3 other voices) that is 8 + 4.8 = 12.8 dB, a factor of about 0.23 (`accompaniment_gains`). With 7 other voices (SSAATTBB) it is 8 + 8.5 = 16.5 dB. The instrumental accompaniment is `instrumental_volume` times as loud as each other voice (option `-iv`, default 2.0 = +6 dB) and counts with its energy, `instrumental_volume²`, into `n`.
+For a SATB choir (3 other voices) that is 8 + 4.8 = 12.8 dB, a factor of about 0.23 (`accompaniment_gains`). With 7 other voices (SSAATTBB) it is 8 + 8.5 = 16.5 dB. The instrumental accompaniment is `instrumental_volume` times as loud as each other voice (option `-iv`, default 2.0 = +6 dB) and counts with its energy, $`\text{instrumental volume}^2`$, into $`n`$.
 
-**Comparison with the old fixed factors:** 0.33 is `20 * log10(0.33) ≈ -9.6 dB` per voice. Three such voices together: -9.6 + 4.8 = -4.8 dB. The practised voice was only about 5 dB above the rest, and only if all instruments were equally loud.
+**Comparison with the old fixed factors:** 0.33 is $`20 \cdot \log_{10}(0.33) \approx -9.6`$ dB per voice. Three such voices together: -9.6 + 4.8 = -4.8 dB. The practised voice was only about 5 dB above the rest, and only if all instruments were equally loud.
 
 ### 4. Prevent distortion
 
