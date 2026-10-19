@@ -599,12 +599,19 @@ def click_track(midi_data: mido.MidiFile, count_in: bool, click: bool) -> mido.M
     return track
 
 
+def click_midi(midi_data: mido.MidiFile, count_in: bool, click: bool) -> mido.MidiFile:
+    """Midi file with the tempo map and the click track (see click_track), so the
+    clicks follow the tempo changes of the piece"""
+    midi = mido.MidiFile(ticks_per_beat=midi_data.ticks_per_beat)
+    midi.tracks.append(midi_data.tracks[0])
+    midi.tracks.append(click_track(midi_data, count_in, click))
+    return midi
+
+
 def generate_click(args: argparse.Namespace, midi_data: mido.MidiFile,
                    file_suffix: str = '') -> Part:
     """Renders the count-in and the click (see click_track) to click.mp3"""
-    midi = mido.MidiFile(ticks_per_beat=midi_data.ticks_per_beat)
-    midi.tracks.append(midi_data.tracks[0])
-    midi.tracks.append(click_track(midi_data, args.count_in, args.click))
+    midi = click_midi(midi_data, args.count_in, args.click)
     midi_filepath = "{}/click{}.midi".format(args.output, file_suffix)
     midi.save(midi_filepath)
     return Part(name='click', midi=midi, midi_filepath=midi_filepath)

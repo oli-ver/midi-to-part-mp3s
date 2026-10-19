@@ -92,6 +92,33 @@ class TestCountIn(unittest.TestCase):
                             for _, message in clicks))
         self.assertLess(clicks[-1][0], midi_to_part_mp3s.last_note_tick(midi_data))
 
+    def test_click_bars_restart_at_time_signature_change(self):
+        # Schumann changes from 3/4 to 2/4 at tick 46464, one beat into a bar
+        midi_data = load(SCHUMANN)
+        beat = midi_data.ticks_per_beat
+        clicks = events(midi_to_part_mp3s.click_track(midi_data, False, True), 'note_on')
+        self.assertEqual([tick for tick, _ in clicks], list(range(0, len(clicks) * beat, beat)))
+        accents = [tick for tick, message in clicks
+                   if message.note == midi_to_part_mp3s.CLICK_ACCENT_NOTE]
+        bars = list(zip(accents, accents[1:]))
+        self.assertTrue(all(end - start == 3 * beat for start, end in bars if end <= 46080))
+        # the bar cut short by the change, then the new bar starts with an accent
+        self.assertIn((46080, 46464), bars)
+        self.assertTrue(all(end - start == 2 * beat for start, end in bars if start >= 46464))
+
+    def test_click_follows_tempo_changes(self):
+        # Schumann starts at 60 beats per minute and speeds up to 68 at tick 27648
+        midi = midi_to_part_mp3s.click_midi(load(SCHUMANN), False, True)
+        seconds = 0.0
+        click_seconds = []
+        for message in midi:
+            seconds += message.time
+            if message.type == 'note_on':
+                click_seconds.append(seconds)
+        beats = numpy.diff(click_seconds)
+        self.assertAlmostEqual(beats[0], 1.0)
+        self.assertAlmostEqual(beats[27648 // 384], 0.882352)
+
 
 class TestCountInConversion(unittest.TestCase):
     def setUp(self):
