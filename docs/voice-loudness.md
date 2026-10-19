@@ -89,6 +89,19 @@ For a SATB choir (3 other voices) that is 8 + 4.8 = 12.8 dB, a factor of about 0
 
 The factors from steps 2 and 3 are all multiplied by the same number so that the loudest possible peak of the mix stays at 90 % of full scale (`mix_parts`). Because all parts are scaled together, the ratios between them don't change.
 
+## Time-dependent balance (piano and forte passages)
+
+Steps 1 to 4 set one volume per voice for the whole piece. Where the practised voice sings piano while the others sing forte, it would still be covered in that passage. So the practice tracks with accompaniment get a second, time-dependent correction (`balance_curve`):
+
+1. The practised voice and the sum of all other parts are cut into short pieces of 50 ms (`BALANCE_HOP_S`). For each piece the energy is calculated, averaged over 0.4 s (`BALANCE_WINDOW_S`) so that a single short note doesn't change anything.
+2. Where the practised voice sings and the rest is closer to it than `margin` dB, the rest is lowered just enough to restore the distance. The allowed energy of the rest is `own energy / 10^(margin / 10)`. Here the formula has 10 instead of 20 because we are comparing energies, not amplitudes.
+3. The factor for the samples is the square root of `allowed energy / actual energy`, because energy is the square of the amplitude. Example: if the rest has 4 times the allowed energy, its samples are multiplied by √(1/4) = 0.5 (-6 dB).
+4. The rest is lowered by at most 12 dB (`MAX_BALANCE_REDUCTION_DB`, a factor of 0.25), so it never disappears completely.
+5. The factor is lowered a little before and raised a little after each such passage, and the transitions are smoothed, so the other parts fade instead of jumping.
+6. Where the practised voice rests or is already loud enough, the factor stays 1: the piano and forte of the score are kept.
+
+Finally the whole mix is scaled so its highest peak is at 90 % of full scale, as in step 4.
+
 ## Values that can be tuned
 
 These constants at the top of `midi_to_part_mp3s.py` are choices, not physics, and are best adjusted by listening:
@@ -97,9 +110,12 @@ These constants at the top of `midi_to_part_mp3s.py` are choices, not physics, a
 |---|---|---|
 | `DEFAULT_VOICE_MARGIN_DB` | 8 dB | how far the practised voice is above the rest (option `-m`) |
 | `MIX_PEAK_AMPLITUDE` | 0.9 | highest peak of a mix, as a fraction of full scale |
+| `BALANCE_HOP_S` | 0.05 s | step size of the time-dependent balance |
+| `BALANCE_WINDOW_S` | 0.4 s | how long a passage is before the balance reacts to it |
+| `MAX_BALANCE_REDUCTION_DB` | 12 dB | the most the other parts are lowered in a passage |
 
 ## Limits
 
 - **Notes sung in unison:** The energy rule in step 3 holds for independent voices. Where voices sing exactly the same notes, their waves add up directly and the rest can be up to 3 dB louder than calculated.
-- **Dynamics:** One volume is set per voice for the whole piece, so piano and forte within a voice are kept. Where the practised voice sings piano while the others sing forte, the distance shrinks in that passage.
+- **Dynamics:** The time-dependent balance lowers the rest by at most 12 dB. If the practised voice sings much more quietly than the others, it can still be less than `margin` dB above them in that passage.
 - **Soundfont:** The measurements happen on the rendered audio, so the calculation adapts to whichever soundfont is installed.
