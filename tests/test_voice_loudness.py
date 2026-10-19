@@ -5,6 +5,8 @@ import subprocess
 import tempfile
 import unittest
 
+import numpy
+
 # allow to import modules from parent dir (https://stackoverflow.com/a/33532002/2641951)
 from inspect import getsourcefile
 import os.path as path
@@ -78,6 +80,41 @@ class TestVoiceLoudness(unittest.TestCase):
         rms_db, peak_db = midi_to_part_mp3s.measure_level(tone_path)
         self.assertAlmostEqual(rms_db, 20 * math.log10(0.5 / math.sqrt(2)), delta=1.0)
         self.assertAlmostEqual(peak_db, 20 * math.log10(0.5), delta=0.5)
+
+
+def tone(amplitude, seconds, frequency):
+    t = numpy.arange(int(seconds * midi_to_part_mp3s.SAMPLE_RATE)) / midi_to_part_mp3s.SAMPLE_RATE
+    mono = amplitude * numpy.sin(2 * numpy.pi * frequency * t)
+    return numpy.vstack([mono, mono]).astype(numpy.float32)
+
+
+def section_db(signal, start_s, end_s):
+    start, end = (int(x * midi_to_part_mp3s.SAMPLE_RATE) for x in (start_s, end_s))
+    return 10 * math.log10((signal[:, start:end] ** 2).mean())
+
+
+class TestDynamicBalance(unittest.TestCase):
+    def setUp(self):
+        # practised voice: 2 s piano, 2 s forte, 2 s rest; others sing mezzoforte
+        self.own = numpy.hstack([tone(0.25, 2, 440), tone(1.0, 2, 440), tone(0.0, 2, 440)])
+        self.rest = tone(0.25, 6, 330)
+
+    def test_others_are_lowered_where_practised_voice_sings_piano(self):
+        curve = midi_to_part_mp3s.balance_curve(self.own, self.rest, 8.0)
+        margin = section_db(self.own, 0.7, 1.3) - section_db(self.rest * curve, 0.7, 1.3)
+        self.assertAlmostEqual(margin, 8.0, delta=1.0)
+
+    def test_others_keep_their_volume_where_practised_voice_is_loud_enough_or_rests(self):
+        curve = midi_to_part_mp3s.balance_curve(self.own, self.rest, 8.0)
+        sample_rate = midi_to_part_mp3s.SAMPLE_RATE
+        self.assertGreater(curve[int(3.0 * sample_rate)], 0.99)
+        self.assertGreater(curve[int(5.5 * sample_rate)], 0.99)
+
+    def test_others_are_lowered_by_at_most_the_maximum_reduction(self):
+        loud_rest = tone(1.0, 6, 330)
+        curve = midi_to_part_mp3s.balance_curve(self.own, loud_rest, 8.0)
+        minimum = 10 ** (-midi_to_part_mp3s.MAX_BALANCE_REDUCTION_DB / 20)
+        self.assertGreaterEqual(curve.min(), minimum - 1e-6)
 
 
 class TestVoiceLoudnessIntegration(unittest.TestCase):
