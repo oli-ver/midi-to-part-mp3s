@@ -1,0 +1,105 @@
+# How the practised voice is made louder
+
+Every practice track ("soprano 1 with accompaniment.mp3" etc.) should let the singer hear their own voice clearly above all other parts. This page explains how the volumes are calculated and why the formulas look the way they do. No prior knowledge of acoustics is assumed.
+
+## Why fixed volume factors are not enough
+
+Each voice is rendered with a different instrument (by default pan flute, recorder and two string ensembles). These instruments are not equally loud: with the FluidR3 soundfont the string ensemble used for the bass came out about 10 dB louder than the flutes. A fixed rule like "own voice 100 %, others 33 %" therefore produced practice tracks in which the alto was quieter than the rest. Even with one instrument for all voices, three voices at 33 % together are almost as loud as the own voice (see the example below).
+
+So the volumes are now calculated from measurements instead of being fixed.
+
+## The units: logarithm and decibel
+
+### Logarithm to base 10
+
+`log10(x)` answers the question "10 to the power of what gives x?":
+
+| x | 1 | 2 | 3 | 10 | 100 | 1000 |
+|---|---|---|---|---|---|---|
+| log10(x) | 0 | 0.30 | 0.48 | 1 | 2 | 3 |
+
+It turns multiplication into addition: `log10(a * b) = log10(a) + log10(b)`, and `log10(a²) = 2 * log10(a)`.
+
+### Decibel (dB)
+
+Our ears don't perceive loudness linearly: twice the sound energy sounds only "a bit louder", not twice as loud. That is why loudness differences are given on a logarithmic scale, in decibels. A decibel always describes a **ratio** of two energies:
+
+```
+difference in dB = 10 * log10(energy 1 / energy 2)
+```
+
+The 10 comes from the definition: a "bel" is `log10` of the energy ratio, and a decibel is a tenth of a bel. Some useful values:
+
+| energy ratio | 2x | 3x | 4x | 10x | 100x |
+|---|---|---|---|---|---|
+| dB | +3 | +4.8 | +6 | +10 | +20 |
+
+Audio files measure levels relative to the loudest possible signal ("dB full scale", dBFS), so levels are negative numbers: -26 dB is louder than -46 dB.
+
+### Amplitude and why the formula uses 20
+
+In the program we don't change energies directly. We multiply the audio samples, i.e. how far the sound wave swings (the **amplitude**), by a factor. The energy of a signal is the **square** of its amplitude: twice the amplitude means four times the energy.
+
+Putting this into the decibel formula:
+
+```
+dB = 10 * log10(amplitude²) = 2 * 10 * log10(amplitude) = 20 * log10(amplitude)
+```
+
+So for amplitude factors the formula has 20 instead of 10. The 20 is not a tuning value, it follows from the definition. Solved for the factor:
+
+```
+amplitude factor = 10^(dB / 20)
+```
+
+In the code this is the function `db_to_amplitude`. Examples: +6 dB is a factor of 2, -20 dB a factor of 0.1, -9.6 dB a factor of 0.33.
+
+## The calculation step by step
+
+### 1. Measure each voice
+
+After each voice has been rendered to its own mp3, its average loudness (RMS level in dB) is measured with `sox stats`. Rests are cut out first (`measure_level`), otherwise a voice with many rests would count as quiet even though it sings just as loud as the others.
+
+### 2. Bring all voices to the same loudness
+
+Each voice is multiplied by `10^(-level / 20)`, which lifts it to 0 dB (`loudness_normalizing_gain`). Example:
+
+| voice | measured level | needed change | factor |
+|---|---|---|---|
+| alto | -46 dB | +46 dB | 10^(46/20) ≈ 200 |
+| bass | -26 dB | +26 dB | 10^(26/20) = 20 |
+
+Afterwards all voices are equally loud. The large factors are no problem because everything is scaled down together in step 4.
+
+### 3. Lower the other voices
+
+Independent voices add up their **energies**. Three equally loud voices together have three times the energy of one voice, so they are `10 * log10(3) ≈ 4.8 dB` louder than one of them. With `n` other voices the rest is `10 * log10(n)` dB louder than a single voice.
+
+The goal is that the practised voice is `margin` dB (default 8, option `-m`) louder than **all other parts together**. So each other voice is lowered by:
+
+```
+margin + 10 * log10(n)
+```
+
+For a SATB choir (3 other voices) that is 8 + 4.8 = 12.8 dB, a factor of about 0.23 (`accompaniment_gains`). With 7 other voices (SSAATTBB) it is 8 + 8.5 = 16.5 dB. The instrumental accompaniment is `instrumental_volume` times as loud as each other voice (option `-iv`, default 2.0 = +6 dB) and counts with its energy, `instrumental_volume²`, into `n`.
+
+**Comparison with the old fixed factors:** 0.33 is `20 * log10(0.33) ≈ -9.6 dB` per voice. Three such voices together: -9.6 + 4.8 = -4.8 dB. The practised voice was only about 5 dB above the rest, and only if all instruments were equally loud.
+
+### 4. Prevent distortion
+
+The factors from steps 2 and 3 are all multiplied by the same number so that the loudest possible peak of the mix stays at 90 % of full scale (`mix_parts`). Because all parts are scaled together, the ratios between them don't change.
+
+## Values that can be tuned
+
+These constants at the top of `midi_to_part_mp3s.py` are choices, not physics, and are best adjusted by listening:
+
+| constant | default | meaning |
+|---|---|---|
+| `DEFAULT_VOICE_MARGIN_DB` | 8 dB | how far the practised voice is above the rest (option `-m`) |
+| `MIX_PEAK_AMPLITUDE` | 0.9 | highest peak of a mix, as a fraction of full scale |
+
+## Limits
+
+- **Notes sung in unison:** The energy rule in step 3 holds for independent voices. Where voices sing exactly the same notes, their waves add up directly and the rest can be up to 3 dB louder than calculated.
+- **Dynamics:** One volume is set per voice for the whole piece, so piano and forte within a voice are kept. Where the practised voice sings piano while the others sing forte, the distance shrinks in that passage.
+- **Soundfont:** The measurements happen on the rendered audio, so the calculation adapts to whichever soundfont is installed.

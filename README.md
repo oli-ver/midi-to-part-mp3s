@@ -71,6 +71,9 @@ optional arguments:
 
 ```
 
+How the volumes of the practised voice and the other parts are calculated is explained in
+[docs/voice-loudness.md](docs/voice-loudness.md).
+
 ### Development
 
 #### Virtual Env
