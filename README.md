@@ -138,11 +138,11 @@ on your machine.
 
 #### Docker
 
-Pull and run the image, publishing the container's port 80 to a local port of your
+Pull and run the image, publishing the container's port 8080 to a local port of your
 choice (e.g. 4000):
 
 ```bash
-docker run -p 4000:80 ghcr.io/oli-ver/midi-to-part-mp3s
+docker run -p 4000:8080 ghcr.io/oli-ver/midi-to-part-mp3s
 ```
 
 Open <http://127.0.0.1:4000> in a browser.
@@ -165,7 +165,7 @@ If you prefer to build the image yourself instead of pulling the pre-built one:
 
 ```bash
 docker build --tag=midi-to-part-mp3 .
-docker run -p 4000:80 midi-to-part-mp3
+docker run -p 4000:8080 midi-to-part-mp3
 ```
 
 Or use the docker-compose dev configuration:

@@ -2,5 +2,5 @@ services:
   app:
     image: ghcr.io/oli-ver/midi-to-part-mp3s
     ports:
-      - "4000:80"
+      - "4000:8080"
     restart: always
