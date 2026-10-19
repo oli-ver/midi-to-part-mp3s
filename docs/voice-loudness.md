@@ -94,8 +94,8 @@ The factors from steps 2 and 3 are all multiplied by the same number so that the
 Steps 1 to 4 set one volume per voice for the whole piece. Where the practised voice sings piano while the others sing forte, it would still be covered in that passage. So the practice tracks with accompaniment get a second, time-dependent correction (`balance_curve`):
 
 1. The practised voice and the sum of all other parts are cut into short pieces of 50 ms (`BALANCE_HOP_S`). For each piece the energy is calculated, averaged over 0.4 s (`BALANCE_WINDOW_S`) so that a single short note doesn't change anything.
-2. Where the practised voice sings and the rest is closer to it than `margin` dB, the rest is lowered just enough to restore the distance. The allowed energy of the rest is `own energy / 10^(margin / 10)`. Here the formula has 10 instead of 20 because we are comparing energies, not amplitudes.
-3. The factor for the samples is the square root of `allowed energy / actual energy`, because energy is the square of the amplitude. Example: if the rest has 4 times the allowed energy, its samples are multiplied by √(1/4) = 0.5 (-6 dB).
+2. Where the practised voice sings and the rest is closer to it than $`\text{margin}`$ dB, the rest is lowered just enough to restore the distance. The allowed energy of the rest is $`\dfrac{\text{own energy}}{10^{\text{margin} / 10}}`$. Here the formula has 10 instead of 20 because we are comparing energies, not amplitudes.
+3. The factor for the samples is $`\sqrt{\dfrac{\text{allowed energy}}{\text{actual energy}}}`$, because energy is the square of the amplitude. Example: if the rest has 4 times the allowed energy, its samples are multiplied by $`\sqrt{1/4} = 0.5`$ (-6 dB).
 4. The rest is lowered by at most 12 dB (`MAX_BALANCE_REDUCTION_DB`, a factor of 0.25), so it never disappears completely.
 5. The factor is lowered a little before and raised a little after each such passage, and the transitions are smoothed, so the other parts fade instead of jumping.
 6. Where the practised voice rests or is already loud enough, the factor stays 1: the piano and forte of the score are kept.
