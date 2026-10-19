@@ -114,6 +114,48 @@ class TestWebapp(unittest.TestCase):
                                     content_type="multipart/form-data")
         self.assertEqual(response.status_code, 400)
 
+    def test_volume_settings_are_passed_to_the_command_line(self):
+        _, argument_list = webapp_app._create_argument_list(
+            "score.musicxml", ["0"], ["1"], ["2"], [], None, "tmp/job",
+            ["3"], 12.0, 0.0)
+        self.assertEqual(argument_list[argument_list.index(
+            "--instrumental-accompaniment") + 1:][:2], ["0", "4"])
+        self.assertEqual(argument_list[argument_list.index(
+            "--voice-margin") + 1], "12.0")
+        # 0 dB means the accompaniment is as loud as each other voice
+        self.assertEqual(argument_list[argument_list.index(
+            "--instrumental-volume") + 1], "1.0")
+
+    def test_volume_settings_are_optional(self):
+        _, argument_list = webapp_app._create_argument_list(
+            "score.musicxml", ["0"], [], [], [], None, "tmp/job")
+        self.assertNotIn("--voice-margin", argument_list)
+        self.assertNotIn("--instrumental-volume", argument_list)
+        self.assertNotIn("--instrumental-accompaniment", argument_list)
+
+    def test_volume_settings_out_of_range_are_rejected(self):
+        for form in ({"voice_margin": "50"}, {"voice_margin": "loud"},
+                     {"accompaniment_volume": "-40"}):
+            response = self.client.post("/jobs", data={
+                "soprano": "0", "musicxml": "<score/>", **form},
+                content_type="multipart/form-data")
+            self.assertEqual(response.status_code, 400, form)
+
+    def test_job_with_accompaniment_and_volume_settings(self):
+        musicxml = json.loads(self._upload("Brahms.mid").data)["musicxml"]
+        response = self.client.post("/jobs", data={
+            "soprano": "0", "alto": "1", "tenor": "2", "accompaniment": "3",
+            "voice_margin": "12", "accompaniment_volume": "-6",
+            "musicxml": musicxml}, content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 202)
+        job_id = json.loads(response.data)["id"]
+        self.assertEqual(self._wait_for_job(job_id)["status"], "done")
+        response = self.client.get(f"/jobs/{job_id}/download")
+        names = zipfile.ZipFile(io.BytesIO(response.data)).namelist()
+        self.assertIn("accompaniment with accompaniment.mp3", names)
+        self.assertNotIn("bass 1 with accompaniment.mp3", names)
+        response.close()
+
     def test_download_without_musicxml_is_rejected(self):
         response = self.client.post("/download", data={"soprano": "0"},
                                     content_type="multipart/form-data")

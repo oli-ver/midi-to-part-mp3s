@@ -104,6 +104,30 @@
 
                     </div>
                     </div>
+                    <div class="row mt-3">
+                    <div class="col-sm-2">
+                        <div class="card">
+                            <div class="card-header">Accompaniment</div>
+                            <div class="card-body" id='accompaniment-tracks' ondrop="drop(event)"
+                                ondragover="allowDrop(event)"></div>
+                        </div>
+                    </div>
+                    <div class="col-sm-5">
+                        <label for="voice-margin" class="form-label">Practised voice louder than the rest by
+                            <output id="voice-margin-value" for="voice-margin">8 dB</output></label>
+                        <input type="range" class="form-range" id="voice-margin" min="0" max="20" step="1"
+                            value="8">
+                        <div class="form-text">Higher values make your own voice easier to follow.</div>
+                    </div>
+                    <div class="col-sm-5">
+                        <label for="accompaniment-volume" class="form-label">Accompaniment compared to each other
+                            voice <output id="accompaniment-volume-value" for="accompaniment-volume">+6 dB</output></label>
+                        <input type="range" class="form-range" id="accompaniment-volume" min="-12" max="12"
+                            step="1" value="6">
+                        <div class="form-text">Only used if tracks are dragged to Accompaniment, e.g. piano or
+                            orchestra.</div>
+                    </div>
+                    </div>
                 </div>
             </div>
         </div>
