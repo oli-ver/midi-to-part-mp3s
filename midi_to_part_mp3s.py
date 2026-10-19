@@ -15,7 +15,7 @@ output_directory = './output'
 soundfont_path = "./soundfonts/timbres-of-heaven.sf2"
 sung_parts = ['soprano', 'alto', 'bass', 'tenor']
 # the practised voice is mixed this many dB above all other parts together
-DEFAULT_VOICE_MARGIN_DB = 8.0
+DEFAULT_VOICE_MARGIN_DECIBEL = 8.0
 # peak level the mixes are scaled to, safely below clipping
 MIX_PEAK_AMPLITUDE = 0.9
 SAMPLE_RATE = 44100
@@ -24,7 +24,7 @@ SAMPLE_RATE = 44100
 BALANCE_HOP_S = 0.05
 BALANCE_WINDOW_S = 0.4
 # the other parts are lowered by at most this much, so they never drop out
-MAX_BALANCE_REDUCTION_DB = 12.0
+MAX_BALANCE_REDUCTION_DECIBEL = 12.0
 # rendering a part counts as one unit of work for the progress report, the mixes
 # take about this many units per mixed part (measured with the test fixtures)
 ACCOMPANIMENT_MIX_UNITS_PER_PART = 0.6
@@ -44,7 +44,7 @@ class Part:
         self.midi = midi
         self.midi_filepath = midi_filepath
         convert_midi_to_mp3(midi_filepath)
-        self.rms_db, self.peak_db = measure_level(self.mp3_filepath())
+        self.rms_decibel, self.peak_decibel = measure_level(self.mp3_filepath())
 
     def mp3_filepath(self) -> str:
         return self.midi_filepath.replace(".midi", ".mp3")
@@ -194,30 +194,30 @@ def measure_level(mp3_filepath: str):
     return levels["RMS lev dB"], levels["Pk lev dB"]
 
 
-def db_to_amplitude(db: float) -> float:
+def decibel_to_amplitude(decibel: float) -> float:
     """Converts a level difference in decibels into the factor the audio samples
     are multiplied with, e.g. +6 dB = 2x, -20 dB = 0.1x. Decibels compare energies
     (10 * log10) and energy is the square of the sample values, hence 20 instead
     of 10. See docs/voice-loudness.md for the full explanation.
     """
-    return 10 ** (db / 20)
+    return 10 ** (decibel / 20)
 
 
 def loudness_normalizing_gain(part: Part) -> float:
     """Amplitude factor that brings the part to a common loudness (0 dBFS RMS)"""
-    if part.rms_db is None:
+    if part.rms_decibel is None:
         return 0.0
     # a part measured at e.g. -46 dB needs +46 dB to reach 0 dB
-    return db_to_amplitude(-part.rms_db)
+    return decibel_to_amplitude(-part.rms_decibel)
 
 
 def mix_parts(solo_parts: List[Part], gains: List[float], output_file_path: str) -> None:
     """Mixes the parts with the given amplitude factors. All factors are scaled
     together so the mix cannot clip, which keeps the ratios between the parts.
     """
-    worst_case_peak = sum(gain * db_to_amplitude(part.peak_db)
+    worst_case_peak = sum(gain * decibel_to_amplitude(part.peak_decibel)
                           for part, gain in zip(solo_parts, gains)
-                          if part.peak_db is not None)
+                          if part.peak_decibel is not None)
     scale = MIX_PEAK_AMPLITUDE / worst_case_peak if worst_case_peak > 0 else 1.0
     combiner = sox.Combiner()
     # docs https://pysox.readthedocs.io/en/latest/api.html
@@ -248,10 +248,10 @@ def change_instrument(midi_data: mido.MidiFile, program_number: int):
 
 
 def accompaniment_gains(own_part: Part, solo_parts: List[Part],
-                        voice_margin_db: float, instrumental_volume: float) -> List[float]:
+                        voice_margin_decibel: float, instrumental_volume: float) -> List[float]:
     """Calculates the amplitude factors for a practice mix. All parts are first
     brought to the same loudness. The other parts are then lowered so that the
-    practised voice is voice_margin_db louder than all of them together, no matter
+    practised voice is voice_margin_decibel louder than all of them together, no matter
     how many voices there are. The instrumental accompaniment is instrumental_volume
     times as loud as each other voice.
 
@@ -259,8 +259,8 @@ def accompaniment_gains(own_part: Part, solo_parts: List[Part],
         List[float] -- amplitude factor per part, in the order of solo_parts
     """
     other_voices = [part for part in solo_parts if part.name not in (
-        own_part.name, 'accompaniment') and part.rms_db is not None]
-    has_instrumental = any(part.name == 'accompaniment' and part.rms_db is not None
+        own_part.name, 'accompaniment') and part.rms_decibel is not None]
+    has_instrumental = any(part.name == 'accompaniment' and part.rms_decibel is not None
                            for part in solo_parts)
     # energies of independent parts add up: after normalizing, each other voice
     # counts 1, the accompaniment instrumental_volume squared (energy = amplitude^2)
@@ -270,13 +270,13 @@ def accompaniment_gains(own_part: Part, solo_parts: List[Part],
     if rest_power > 0:
         # lower the rest by the margin and by its summed energy, e.g. 3 other
         # voices: 8 dB + 4.8 dB, as 10 * log10(3) = 4.8 dB
-        other_gain = 1 / (db_to_amplitude(voice_margin_db) * rest_power ** 0.5)
+        other_gain = 1 / (decibel_to_amplitude(voice_margin_decibel) * rest_power ** 0.5)
 
     gains = []
     for part in solo_parts:
         gain = loudness_normalizing_gain(part)
         if part.name == own_part.name:
-            gains.append(gain if part.rms_db is not None else 1.0)
+            gains.append(gain if part.rms_decibel is not None else 1.0)
         elif part.name == 'accompaniment':
             gains.append(gain * other_gain * instrumental_volume)
         else:
@@ -304,10 +304,10 @@ def _moving_average(values: numpy.ndarray, width: int) -> numpy.ndarray:
     return numpy.convolve(values, numpy.ones(width) / width, mode='same')
 
 
-def balance_curve(own: numpy.ndarray, rest: numpy.ndarray, voice_margin_db: float) -> numpy.ndarray:
+def balance_curve(own: numpy.ndarray, rest: numpy.ndarray, voice_margin_decibel: float) -> numpy.ndarray:
     """Calculates a time dependent factor for the other parts. Wherever the
     practised voice sings, the other parts are lowered just as far as needed to
-    keep the practised voice voice_margin_db above them, e.g. when it sings piano
+    keep the practised voice voice_margin_decibel above them, e.g. when it sings piano
     while the others sing forte. Elsewhere the factor is 1, so the dynamics of the
     score are kept as long as they don't cover the practised voice.
 
@@ -331,13 +331,13 @@ def balance_curve(own: numpy.ndarray, rest: numpy.ndarray, voice_margin_db: floa
     own_power = frame_power(own)
     rest_power = frame_power(rest)
     # powers are energies, so dB convert with 10 here (not 20), see docs/voice-loudness.md
-    allowed_rest_power = own_power / 10 ** (voice_margin_db / 10)
+    allowed_rest_power = own_power / 10 ** (voice_margin_decibel / 10)
     singing = own_power > own_power.max() * 1e-4
     factor = numpy.ones(frames)
     too_loud = singing & (rest_power > allowed_rest_power)
     # the factor multiplies samples, and energy is samples squared, hence the root
     factor[too_loud] = numpy.sqrt(allowed_rest_power[too_loud] / rest_power[too_loud])
-    factor = numpy.maximum(factor, db_to_amplitude(-MAX_BALANCE_REDUCTION_DB))
+    factor = numpy.maximum(factor, decibel_to_amplitude(-MAX_BALANCE_REDUCTION_DECIBEL))
     # lower a little earlier and recover a little later than needed, then smooth
     # the transitions so the other parts don't jump in volume
     padded = numpy.pad(factor, width, mode='edge')
@@ -561,9 +561,9 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument("-iv", "--instrumental-volume",
                         help="loudness of the instrumental accompaniment relative to each \
                               other voice, defaults to 2.0", type=float, default=2.0)
-    parser.add_argument("-m", "--voice-margin", type=float, default=DEFAULT_VOICE_MARGIN_DB,
+    parser.add_argument("-m", "--voice-margin", type=float, default=DEFAULT_VOICE_MARGIN_DECIBEL,
                         help="how many dB the practised voice is louder than all other parts \
-                              together, defaults to {}".format(DEFAULT_VOICE_MARGIN_DB))
+                              together, defaults to {}".format(DEFAULT_VOICE_MARGIN_DECIBEL))
     parser.add_argument("-i", "--instrumental-accompaniment", help='midi tracks that \
           appear in all accompaniment mp3s e.g. piano or orchestra', nargs='+',
                         type=int, default=[])

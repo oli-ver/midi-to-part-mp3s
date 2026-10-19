@@ -52,7 +52,7 @@ So for amplitude factors the formula has 20 instead of 10. The 20 is not a tunin
 \text{amplitude factor} = 10^{\text{dB} / 20}
 ```
 
-In the code this is the function `db_to_amplitude`. Examples: +6 dB is a factor of 2, -20 dB a factor of 0.1, -9.6 dB a factor of 0.33.
+In the code this is the function `decibel_to_amplitude`. Examples: +6 dB is a factor of 2, -20 dB a factor of 0.1, -9.6 dB a factor of 0.33.
 
 ## The calculation step by step
 
@@ -96,7 +96,7 @@ Steps 1 to 4 set one volume per voice for the whole piece. Where the practised v
 1. The practised voice and the sum of all other parts are cut into short pieces of 50 ms (`BALANCE_HOP_S`). For each piece the energy is calculated, averaged over 0.4 s (`BALANCE_WINDOW_S`) so that a single short note doesn't change anything.
 2. Where the practised voice sings and the rest is closer to it than $`\text{margin}`$ dB, the rest is lowered just enough to restore the distance. The allowed energy of the rest is $`\dfrac{\text{own energy}}{10^{\text{margin} / 10}}`$. Here the formula has 10 instead of 20 because we are comparing energies, not amplitudes.
 3. The factor for the samples is $`\sqrt{\dfrac{\text{allowed energy}}{\text{actual energy}}}`$, because energy is the square of the amplitude. Example: if the rest has 4 times the allowed energy, its samples are multiplied by $`\sqrt{1/4} = 0.5`$ (-6 dB).
-4. The rest is lowered by at most 12 dB (`MAX_BALANCE_REDUCTION_DB`, a factor of 0.25), so it never disappears completely.
+4. The rest is lowered by at most 12 dB (`MAX_BALANCE_REDUCTION_DECIBEL`, a factor of 0.25), so it never disappears completely.
 5. The factor is lowered a little before and raised a little after each such passage, and the transitions are smoothed, so the other parts fade instead of jumping.
 6. Where the practised voice rests or is already loud enough, the factor stays 1: the piano and forte of the score are kept.
 
@@ -108,11 +108,11 @@ These constants at the top of `midi_to_part_mp3s.py` are choices, not physics, a
 
 | constant | default | meaning |
 |---|---|---|
-| `DEFAULT_VOICE_MARGIN_DB` | 8 dB | how far the practised voice is above the rest (option `-m`) |
+| `DEFAULT_VOICE_MARGIN_DECIBEL` | 8 dB | how far the practised voice is above the rest (option `-m`) |
 | `MIX_PEAK_AMPLITUDE` | 0.9 | highest peak of a mix, as a fraction of full scale |
 | `BALANCE_HOP_S` | 0.05 s | step size of the time-dependent balance |
 | `BALANCE_WINDOW_S` | 0.4 s | how long a passage is before the balance reacts to it |
-| `MAX_BALANCE_REDUCTION_DB` | 12 dB | the most the other parts are lowered in a passage |
+| `MAX_BALANCE_REDUCTION_DECIBEL` | 12 dB | the most the other parts are lowered in a passage |
 
 ## Limits
 
