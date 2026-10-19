@@ -248,7 +248,7 @@ def _create_argument_list(
     if accompaniment_volume_decibel is not None:
         # the slider is in dB, the command line expects an amplitude factor
         argument_list.extend(["--instrumental-volume",
-                              str(midi_to_part_mp3s.db_to_amplitude(accompaniment_volume_decibel))])
+                              str(midi_to_part_mp3s.decibel_to_amplitude(accompaniment_volume_decibel))])
 
     output_folder = f"{random_folder_name}/{OUTPUT_FOLDER}"
     _single_append_argument(argument_list, OUTPUT, output_folder)
