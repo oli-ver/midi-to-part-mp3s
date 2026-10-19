@@ -77,3 +77,9 @@
     border-radius: .5rem;
     box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .15);
 }
+
+/* let the file input shrink on narrow screens so the upload button stays inside the card */
+#js-upload-files {
+    min-width: 0;
+    max-width: 100%;
+}
