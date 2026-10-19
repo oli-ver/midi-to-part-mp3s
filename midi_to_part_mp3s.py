@@ -32,7 +32,6 @@ MAPPING = {
     "tenor": 49,  # string ensemble 1
     "bass": 50  # string ensemble 2
 }
-args = None
 
 
 class Part:
@@ -47,11 +46,12 @@ class Part:
         return self.midi_filepath.replace(".midi", ".mp3")
 
 
-def check_format(file_path: str) -> str:
+def check_format(file_path: str, output_dir: str) -> str:
     """If the format is midi, proceed. If the format is MusicXML, convert to midi.
 
     Arguments:
         file_path {[str]} -- path of the file to convert
+        output_dir {str} -- folder the converted midi file is written to
 
     Raises:
         NameError: Raised if trying to convert a format not supported by the script
@@ -62,22 +62,23 @@ def check_format(file_path: str) -> str:
     if file_path.endswith('.mid') or file_path.endswith('.midi'):
         return file_path
     elif file_path.endswith('.mxl') or file_path.endswith('.musicxml'):
-        return convert_music_xml_to_midi(file_path)
+        return convert_music_xml_to_midi(file_path, output_dir)
     else:
         raise NameError(
             'The application currently only supports midi or MusicXML format')
 
 
-def convert_music_xml_to_midi(file_path: str) -> str:
+def convert_music_xml_to_midi(file_path: str, output_dir: str) -> str:
     """Converts a MusicXML file to midi
 
     Arguments:
         file_path {str} -- file path of the the MusicXML file
+        output_dir {str} -- folder the converted midi file is written to
 
     Returns:
         str -- path of the converted midi file after conversion
     """
-    converted_file_path = args.output + '/temp.midi'
+    converted_file_path = output_dir + '/temp.midi'
     score: music21.stream.Score = music21.converter.parse(file_path)
     midi_file = music21.midi.translate.streamToMidiFile(score)
     midi_file.open(converted_file_path, 'wb')
@@ -90,24 +91,24 @@ def track_names(midi_data) -> List[str]:
     return list(map(lambda track: track.name, midi_data.tracks))
 
 
-def instrument_number_for_part(part: str) -> int:
+def instrument_number_for_part(part: str, instrument: int = None) -> int:
     """Fetches the instrument index from the mapping. In case of an instrument
     parameter this instrument is returned instead of the default mapping
 
     Arguments:
         part {str} -- name of the part
+        instrument {int} -- instrument for all voices, None for the default mapping
 
     Returns:
         int -- integer index of an instrument
     """
-    global args
-    if (args.instrument != None):
-        return args.instrument
+    if (instrument != None):
+        return instrument
     else:
         return MAPPING[part]
 
 
-def generate_solo_parts(midi_data: mido.MidiFile, track_numbers: List[int], part_name: str, instrument_number: int) -> Part:
+def generate_solo_parts(midi_data: mido.MidiFile, track_numbers: List[int], part_name: str, instrument_number: int, output_dir: str) -> Part:
     """Generates a solo part and returns a Part object describing it
 
     Arguments:
@@ -115,6 +116,7 @@ def generate_solo_parts(midi_data: mido.MidiFile, track_numbers: List[int], part
         track_numbers {List[int]} -- numbers of the tracks to include in the solo parts
         part_name {str} -- name of the past
         instrument_number {int} -- id of the instrument in the configured soundfont
+        output_dir {str} -- folder the midi and mp3 files are written to
 
     Returns:
         Part -- generated Part object
@@ -128,7 +130,7 @@ def generate_solo_parts(midi_data: mido.MidiFile, track_numbers: List[int], part
 
     if part_name != 'accompaniment':
         change_instrument(midi, instrument_number)
-    new_file_path = "{}/{}.midi".format(args.output, part_name)
+    new_file_path = "{}/{}.midi".format(output_dir, part_name)
     midi.save(new_file_path)
 
     part = Part(name=part_name, midi=midi, midi_filepath=new_file_path)
@@ -342,7 +344,7 @@ def balance_curve(own: numpy.ndarray, rest: numpy.ndarray, voice_margin_db: floa
     return numpy.interp(numpy.arange(own.shape[1]), frame_centers, factor)
 
 
-def generate_accompaniment(own_part, solo_parts) -> None:
+def generate_accompaniment(args: argparse.Namespace, own_part, solo_parts) -> None:
     gains = accompaniment_gains(own_part, solo_parts, args.voice_margin,
                                 args.instrumental_volume)
     output_file_path = "{}/{} with accompaniment.mp3".format(
@@ -362,7 +364,7 @@ def generate_accompaniment(own_part, solo_parts) -> None:
     write_mp3(mix, output_file_path)
 
 
-def generate_full_mp3(solo_parts: List[Part]) -> None:
+def generate_full_mp3(args: argparse.Namespace, solo_parts: List[Part]) -> None:
     # all voices equally loud, the accompaniment as configured
     gains = [loudness_normalizing_gain(part) *
              (args.instrumental_volume if part.name == 'accompaniment' else 1.0)
@@ -411,22 +413,25 @@ def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str) -> N
     midi_data: mido.MidiFile = ensure_midi_well_formatted(
         mido.MidiFile(midifile_path))
     solo_parts: List[Part] = []
-    voices: list = create_voices()
-    add_accompaniment(voices)
+    voices: list = create_voices(args)
+    add_accompaniment(args, voices)
     for part_name, track_numbers, instrument in voices:
         solo_part: Part = generate_solo_parts(
-            midi_data, track_numbers, part_name, instrument)
+            midi_data, track_numbers, part_name, instrument, args.output)
         solo_parts.append(solo_part)
 
     part: Part
     for part in solo_parts:
-        generate_accompaniment(part, solo_parts)
+        generate_accompaniment(args, part, solo_parts)
 
-    generate_full_mp3(solo_parts)
+    generate_full_mp3(args, solo_parts)
 
 
-def create_voices() -> list:
+def create_voices(args: argparse.Namespace) -> list:
     """Creates a nested list of the voices with their assigned midi track number
+
+    Arguments:
+        args {argparse.Namespace} -- arguments with the track numbers per voice
 
     Returns:
         List[List] -- list of voices and their assigned midi track numbers
@@ -442,16 +447,18 @@ def create_voices() -> list:
                 track_id = voice_midi_tracks[i]
                 tracks.append(tempo_map_track_number)
                 tracks.append(track_id)
-                instrument = instrument_number_for_part(sung_part)
+                instrument = instrument_number_for_part(
+                    sung_part, args.instrument)
                 voice = [sung_part + ' ' + str(i+1), tracks, instrument]
                 voices.append(voice)
     return voices
 
 
-def add_accompaniment(voices: list) -> None:
+def add_accompaniment(args: argparse.Namespace, voices: list) -> None:
     """Edits the voices list to include the accompaniment voice
 
     Arguments:
+        args {argparse.Namespace} -- arguments with the accompaniment tracks
         voices {list} -- list of voices and their assigned midi track numbers
     """
     if args.instrumental_accompaniment:
@@ -459,25 +466,25 @@ def add_accompaniment(voices: list) -> None:
             ['accompaniment', args.instrumental_accompaniment, None])
 
 
-def cleanup() -> None:
-    remove_temporary_midifiles()
+def cleanup(output_dir: str) -> None:
+    remove_temporary_midifiles(output_dir)
 
 
-def prepare_output_directory() -> None:
+def prepare_output_directory(output_dir: str) -> None:
     """ Ensures an empty output directory is available"""
-    if os.path.exists(args.output):
-        shutil.rmtree(args.output)
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir)
 
-    os.makedirs(args.output)
-
-
+    os.makedirs(output_dir)
 
 
-def remove_temporary_midifiles() -> None:
+
+
+def remove_temporary_midifiles(output_dir: str) -> None:
     midi_file: str
-    for midi_file in os.listdir(args.output):
+    for midi_file in os.listdir(output_dir):
         if midi_file.endswith('.midi'):
-            os.unlink(os.path.join(args.output, midi_file))
+            os.unlink(os.path.join(output_dir, midi_file))
 
 
 def set_defaults(args: argparse.Namespace) -> None:
@@ -542,15 +549,24 @@ def get_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def convert(args: argparse.Namespace) -> None:
+    """Generates the practice mp3s for the given arguments. Everything the
+    conversion needs is passed in, so several conversions can run at once.
+
+    Arguments:
+        args {argparse.Namespace} -- arguments as returned by get_parser and set_defaults
+    """
+    prepare_output_directory(args.output)
+    midi_file_path = check_format(args.file_path, args.output)
+    separate_tracks_into_mp3s(args, midi_file_path)
+    cleanup(args.output)
+
+
 def main(sys_args):
     parser = get_parser()
-    global args
     args = parser.parse_args(sys_args)
     set_defaults(args)
-    prepare_output_directory()
-    midi_file_path = check_format(args.file_path)
-    separate_tracks_into_mp3s(args, midi_file_path)
-    cleanup()
+    convert(args)
 
 
 if __name__ == "__main__":
