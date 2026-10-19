@@ -83,3 +83,9 @@
     min-width: 0;
     max-width: 100%;
 }
+
+/* keep the track lanes below the score within reach */
+.score-view-rendered {
+    max-height: 60vh;
+    overflow-y: auto;
+}
