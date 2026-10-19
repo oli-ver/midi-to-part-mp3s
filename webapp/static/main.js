@@ -78,7 +78,7 @@ $(function () {
     })
 
     $('#accompaniment-volume').on('input', function () {
-        $('#accompaniment-volume-value').text(dbText(this.value))
+        $('#accompaniment-volume-value').text(decibelText(this.value))
     })
 
     $('#btDownload').click(function () {
@@ -157,7 +157,7 @@ function remainingText(seconds) {
     return 'About ' + minutes + (minutes === 1 ? ' minute' : ' minutes') + ' left'
 }
 
-function dbText(value) {
+function decibelText(value) {
     return (value > 0 ? '+' : '') + value + ' dB'
 }
 
