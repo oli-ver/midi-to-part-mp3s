@@ -424,8 +424,10 @@ def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str,
     add_accompaniment(args, voices)
     accompaniment_units = ACCOMPANIMENT_MIX_UNITS_PER_PART * len(voices)
     full_mix_units = FULL_MIX_UNITS_PER_PART * len(voices)
-    # one rendering and one mix per part and the full mix
-    total_units = len(voices) * (1 + accompaniment_units) + full_mix_units
+    # the instrumental accompaniment is no practised voice, so it gets no mix of its own
+    sung_voices = [voice for voice in voices if voice[0] != 'accompaniment']
+    # one rendering per part, one mix per sung voice and the full mix
+    total_units = len(voices) + len(sung_voices) * accompaniment_units + full_mix_units
     done_units = 0.0
 
     def report(units: float) -> None:
@@ -443,6 +445,8 @@ def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str,
 
     part: Part
     for part in solo_parts:
+        if part.name == 'accompaniment':
+            continue
         generate_accompaniment(args, part, solo_parts)
         report(accompaniment_units)
 

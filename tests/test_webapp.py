@@ -152,7 +152,8 @@ class TestWebapp(unittest.TestCase):
         self.assertEqual(self._wait_for_job(job_id)["status"], "done")
         response = self.client.get(f"/jobs/{job_id}/download")
         names = zipfile.ZipFile(io.BytesIO(response.data)).namelist()
-        self.assertIn("accompaniment with accompaniment.mp3", names)
+        self.assertIn("accompaniment.mp3", names)
+        self.assertNotIn("accompaniment with accompaniment.mp3", names)
         self.assertNotIn("bass 1 with accompaniment.mp3", names)
         response.close()
 
