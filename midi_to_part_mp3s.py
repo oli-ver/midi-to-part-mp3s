@@ -180,18 +180,28 @@ def measure_level(mp3_filepath: str):
     return levels["RMS lev dB"], levels["Pk lev dB"]
 
 
+def db_to_amplitude(db: float) -> float:
+    """Converts a level difference in decibels into the factor the audio samples
+    are multiplied with, e.g. +6 dB = 2x, -20 dB = 0.1x. Decibels compare energies
+    (10 * log10) and energy is the square of the sample values, hence 20 instead
+    of 10. See docs/voice-loudness.md for the full explanation.
+    """
+    return 10 ** (db / 20)
+
+
 def loudness_normalizing_gain(part: Part) -> float:
     """Amplitude factor that brings the part to a common loudness (0 dBFS RMS)"""
     if part.rms_db is None:
         return 0.0
-    return 10 ** (-part.rms_db / 20)
+    # a part measured at e.g. -46 dB needs +46 dB to reach 0 dB
+    return db_to_amplitude(-part.rms_db)
 
 
 def mix_parts(solo_parts: List[Part], gains: List[float], output_file_path: str) -> None:
     """Mixes the parts with the given amplitude factors. All factors are scaled
     together so the mix cannot clip, which keeps the ratios between the parts.
     """
-    worst_case_peak = sum(gain * 10 ** (part.peak_db / 20)
+    worst_case_peak = sum(gain * db_to_amplitude(part.peak_db)
                           for part, gain in zip(solo_parts, gains)
                           if part.peak_db is not None)
     scale = MIX_PEAK_AMPLITUDE / worst_case_peak if worst_case_peak > 0 else 1.0
@@ -238,11 +248,15 @@ def accompaniment_gains(own_part: Part, solo_parts: List[Part],
         own_part.name, 'accompaniment') and part.rms_db is not None]
     has_instrumental = any(part.name == 'accompaniment' and part.rms_db is not None
                            for part in solo_parts)
+    # energies of independent parts add up: after normalizing, each other voice
+    # counts 1, the accompaniment instrumental_volume squared (energy = amplitude^2)
     rest_power = len(other_voices) + \
         (instrumental_volume ** 2 if has_instrumental else 0)
     other_gain = 1.0
     if rest_power > 0:
-        other_gain = 1 / (10 ** (voice_margin_db / 20) * rest_power ** 0.5)
+        # lower the rest by the margin and by its summed energy, e.g. 3 other
+        # voices: 8 dB + 4.8 dB, as 10 * log10(3) = 4.8 dB
+        other_gain = 1 / (db_to_amplitude(voice_margin_db) * rest_power ** 0.5)
 
     gains = []
     for part in solo_parts:
