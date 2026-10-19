@@ -118,6 +118,24 @@ class TestWebapp(unittest.TestCase):
                 "soprano": "0", "slow_tempo": value, "musicxml": "<score/>"},
                 content_type="multipart/form-data")
             self.assertEqual(response.status_code, 400)
+    def test_count_in_and_click_are_passed_on(self):
+        with webapp_app.app.test_request_context(
+                "/jobs", method="POST",
+                data={"musicxml": "<score/>", "count_in": "1", "click": "1"}):
+            folder = webapp_app._check_tmp_folder()
+            _, argument_list = webapp_app._arguments_from_form(folder)
+        shutil.rmtree(folder, ignore_errors=True)
+        self.assertIn("--count-in", argument_list)
+        self.assertIn("--click", argument_list)
+
+    def test_count_in_and_click_are_off_by_default(self):
+        with webapp_app.app.test_request_context(
+                "/jobs", method="POST", data={"musicxml": "<score/>"}):
+            folder = webapp_app._check_tmp_folder()
+            _, argument_list = webapp_app._arguments_from_form(folder)
+        shutil.rmtree(folder, ignore_errors=True)
+        self.assertNotIn("--count-in", argument_list)
+        self.assertNotIn("--click", argument_list)
 
     def test_failed_job_is_reported(self):
         response = self.client.post("/jobs", data={

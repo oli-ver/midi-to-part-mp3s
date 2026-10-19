@@ -99,6 +99,12 @@ $(function () {
         if ($('#slow-tempo-selector').val()) {
             downloadFormData.append('slow_tempo', $('#slow-tempo-selector').val())
         }
+        if ($('#count-in').is(':checked')) {
+            downloadFormData.append('count_in', '1')
+        }
+        if ($('#click').is(':checked')) {
+            downloadFormData.append('click', '1')
+        }
         downloadFormData.append('musicxml', window.musicXml)
         showProgress(0, 'Starting the conversion…')
         $.ajax(

@@ -39,6 +39,8 @@ ACCOMPANIMENT: str = "accompaniment"
 VOICE_MARGIN: str = "voice_margin"
 ACCOMPANIMENT_VOLUME: str = "accompaniment_volume"
 SLOW_TEMPO: str = "slow_tempo"
+COUNT_IN: str = "count_in"
+CLICK: str = "click"
 MUSICXML: str = "musicxml"
 OUTPUT: str = "output"
 
@@ -206,6 +208,8 @@ def _arguments_from_form(random_folder_name: str):
         _decibel_from_form(VOICE_MARGIN, VOICE_MARGIN_RANGE_DECIBEL),
         _decibel_from_form(ACCOMPANIMENT_VOLUME, ACCOMPANIMENT_VOLUME_RANGE_DECIBEL),
         _slow_tempo_from_form(),
+        _flag_from_form(COUNT_IN),
+        _flag_from_form(CLICK),
     )
 
 
@@ -234,6 +238,11 @@ def _slow_tempo_from_form():
         abort(400, f"{SLOW_TEMPO}: {error}")
 
 
+def _flag_from_form(name: str) -> bool:
+    """Whether a checkbox was ticked, sent as "1" by the web app"""
+    return request.form.get(name) in ("1", "on", "true")
+
+
 def _create_argument_list(
     midi_file_path: str,
     soprano_tracks,
@@ -246,6 +255,8 @@ def _create_argument_list(
     voice_margin_decibel=None,
     accompaniment_volume_decibel=None,
     slow_tempo=None,
+    count_in=False,
+    click=False,
 ) -> List[str]:
     argument_list: List[str] = ["-f", midi_file_path]
     _list_append_track_id(argument_list, SOPRANO, soprano_tracks)
@@ -266,6 +277,10 @@ def _create_argument_list(
                               str(midi_to_part_mp3s.decibel_to_amplitude(accompaniment_volume_decibel))])
     if slow_tempo:
         argument_list.extend(["--slow-tempo", str(slow_tempo)])
+    if count_in:
+        argument_list.append("--count-in")
+    if click:
+        argument_list.append("--click")
 
     output_folder = f"{random_folder_name}/{OUTPUT_FOLDER}"
     _single_append_argument(argument_list, OUTPUT, output_folder)
