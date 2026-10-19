@@ -57,8 +57,9 @@
 .info-button {
     flex-shrink: 0;
     margin-left: .25rem;
-    width: 1.4rem;
-    height: 1.4rem;
+    width: 1rem;
+    height: 1rem;
+    font-size: .7rem;
     padding: 0;
     border: 1px solid var(--bs-primary);
     border-radius: 50%;
