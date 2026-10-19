@@ -9,6 +9,7 @@ $(function () {
 
     var startUpload = function () {
         $('#js-upload-submit').prop('disabled', true)
+        $('#upload-status').removeClass('d-none')
         console.log($('#js-upload-form')[0])
         let formData = new FormData($('#js-upload-form')[0]);
         $.ajax({
@@ -42,6 +43,7 @@ $(function () {
             },
             error: function (data) {
                 $('#js-upload-submit').prop('disabled', false)
+                $('#upload-status').addClass('d-none')
             }
         });
     }
@@ -73,9 +75,8 @@ $(function () {
 
     $('#btDownload').click(function () {
         $(this).prop('disabled', true);
+        $('#errorMessage').text('')
 
-        // Triggering file download from here: http://www.alexhadik.com/blog/2016/7/7/l8ztp8kr5lbctf5qns4l8t3646npqh
-        let url = 'download'
         let downloadFormData = new FormData();
         $("#soprano-tracks :input").each(function (i, val) { downloadFormData.append('soprano', val.value) })
         $("#alto-tracks :input").each(function (i, val) { downloadFormData.append('alto', val.value) })
@@ -85,52 +86,77 @@ $(function () {
             downloadFormData.append('instrument', $('#instrument-selector option:selected').val())
         }
         downloadFormData.append('musicxml', window.musicXml)
+        showProgress(0, 'Starting the conversion…')
         $.ajax(
             {
                 type: "POST",
-                url: url,
+                url: 'jobs',
                 data: downloadFormData,
                 enctype: 'multipart/form-data',
                 contentType: false,
                 cache: false,
                 processData: false,
-                xhrFields:{
-                    responseType: 'blob'
-                },
                 success: function (data) {
-                    createBlobAndTriggerDownload(data, 'part-mp3s.zip', 'application/zip')
-                    $('#btDownload').prop('disabled', false);
+                    pollJob(data.id)
                 },
                 error: function (jqXHR, textStatus) {
-                    $('#errorMessage').text("The download could not be initiated (HTTP error code " + jqXHR.status + ", text status '" + textStatus + "')")
-                    $('#btDownload').prop('disabled', false);
+                    jobFailed("The conversion could not be started (HTTP error code " + jqXHR.status + ", text status '" + textStatus + "')")
                 }
             }
         );
     });
 });
 
-/**
- * Encapsulates the feature to trigger a download for a blob object.
- * 
- * Constructs a blob object utilizing the response data of the onload object.
- * This done using a "virtual" html link element that is hidden and clicked programmatically.
- * 
- * By encapsulating the blob in a DOMString and pointing the link to it,
- * the browser will react as if clicked on a regular file download link.
- * 
- * Source: http://www.alexhadik.com/blog/2016/7/7/l8ztp8kr5lbctf5qns4l8t3646npqh
- */
-function createBlobAndTriggerDownload(response, fileName, mediaType) {
-    var blob = new Blob([response], { type: mediaType });
-    let a = document.createElement("a");
-    a.style = "display: none";
-    document.body.appendChild(a);
-    let url = window.URL.createObjectURL(blob);
-    a.href = url;
-    a.download = fileName;
-    a.click();
-    window.URL.revokeObjectURL(url);
+// Asks the server every second how far the conversion is and starts the
+// download as soon as it is finished
+function pollJob(jobId) {
+    $.ajax({
+        url: 'jobs/' + jobId,
+        cache: false,
+        success: function (job) {
+            if (job.status === 'done') {
+                showProgress(100, 'Done, the download starts.')
+                window.location.href = 'jobs/' + jobId + '/download'
+                $('#btDownload').prop('disabled', false);
+            } else if (job.status === 'failed') {
+                jobFailed('The conversion failed. Please check the voice assignment and try again.')
+            } else {
+                if (job.status === 'queued') {
+                    showProgress(0, 'Waiting for other conversions to finish…')
+                } else {
+                    showProgress(job.percent, remainingText(job.remaining_s))
+                }
+                setTimeout(function () { pollJob(jobId) }, 1000)
+            }
+        },
+        error: function (jqXHR, textStatus) {
+            jobFailed("The progress could not be read (HTTP error code " + jqXHR.status + ", text status '" + textStatus + "')")
+        }
+    });
+}
+
+function remainingText(seconds) {
+    if (seconds === null) {
+        return 'Preparing the score…'
+    }
+    if (seconds < 60) {
+        return 'About ' + seconds + ' seconds left'
+    }
+    let minutes = Math.round(seconds / 60)
+    return 'About ' + minutes + (minutes === 1 ? ' minute' : ' minutes') + ' left'
+}
+
+function showProgress(percent, text) {
+    $('#job-progress').removeClass('d-none').attr('aria-valuenow', percent)
+    $('#job-progress .progress-bar').css('width', percent + '%')
+    $('#job-status').text(text)
+}
+
+function jobFailed(message) {
+    $('#job-progress').addClass('d-none')
+    $('#job-status').text('')
+    $('#errorMessage').text(message)
+    $('#btDownload').prop('disabled', false);
 }
 
 function allowDrop(event) {

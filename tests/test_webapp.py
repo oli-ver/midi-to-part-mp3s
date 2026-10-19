@@ -3,6 +3,7 @@ import io
 import json
 import os
 import shutil
+import time
 import unittest
 import zipfile
 
@@ -70,6 +71,48 @@ class TestWebapp(unittest.TestCase):
         self.assertIn("all.mp3", names)
         self.assertIn("soprano 1 with accompaniment.mp3", names)
         self.assertEqual(set(os.listdir(webapp_app.TEMP_FOLDER)), folders_before)
+
+    def _wait_for_job(self, job_id):
+        for _ in range(300):
+            status = json.loads(self.client.get(f"/jobs/{job_id}").data)
+            if status["status"] in ("done", "failed"):
+                return status
+            time.sleep(0.1)
+        self.fail("job did not finish")
+
+    def test_job_reports_progress_and_returns_zip(self):
+        musicxml = json.loads(self._upload("Brahms.mid").data)["musicxml"]
+        response = self.client.post("/jobs", data={
+            "soprano": "0", "alto": "1", "tenor": "2", "bass": "3",
+            "musicxml": musicxml}, content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 202)
+        job_id = json.loads(response.data)["id"]
+        status = self._wait_for_job(job_id)
+        self.assertEqual(status, {"status": "done", "percent": 100,
+                                  "remaining_s": 0})
+        response = self.client.get(f"/jobs/{job_id}/download")
+        self.assertEqual(response.status_code, 200)
+        names = zipfile.ZipFile(io.BytesIO(response.data)).namelist()
+        self.assertIn("all.mp3", names)
+        self.assertIn("soprano 1 with accompaniment.mp3", names)
+        response.close()
+
+    def test_failed_job_is_reported(self):
+        response = self.client.post("/jobs", data={
+            "soprano": "0", "musicxml": "not a score"},
+            content_type="multipart/form-data")
+        status = self._wait_for_job(json.loads(response.data)["id"])
+        self.assertEqual(status["status"], "failed")
+
+    def test_unknown_job(self):
+        self.assertEqual(self.client.get("/jobs/unknown").status_code, 404)
+        self.assertEqual(
+            self.client.get("/jobs/unknown/download").status_code, 404)
+
+    def test_job_without_musicxml_is_rejected(self):
+        response = self.client.post("/jobs", data={"soprano": "0"},
+                                    content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 400)
 
     def test_download_without_musicxml_is_rejected(self):
         response = self.client.post("/download", data={"soprano": "0"},

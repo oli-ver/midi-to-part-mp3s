@@ -25,6 +25,10 @@ BALANCE_HOP_S = 0.05
 BALANCE_WINDOW_S = 0.4
 # the other parts are lowered by at most this much, so they never drop out
 MAX_BALANCE_REDUCTION_DB = 12.0
+# rendering a part counts as one unit of work for the progress report, the mixes
+# take about this many units per mixed part (measured with the test fixtures)
+ACCOMPANIMENT_MIX_UNITS_PER_PART = 0.6
+FULL_MIX_UNITS_PER_PART = 0.4
 # instrument choices based off advice given here: http://www3.cpdl.org/wiki/index.php/User:Robert_Urmann
 MAPPING = {
     "soprano": 76,  # pan flute
@@ -409,22 +413,41 @@ def ensure_midi_well_formatted(midi_data: mido.MidiFile) -> mido.MidiFile:
         return separate_out_tempo_map(midi_data)
 
 
-def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str) -> None:
+def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str,
+                              progress=None) -> None:
+    """Generates the mp3s. progress is called as progress(done_units, total_units,
+    audio_seconds) at the start and after every step."""
     midi_data: mido.MidiFile = ensure_midi_well_formatted(
         mido.MidiFile(midifile_path))
     solo_parts: List[Part] = []
     voices: list = create_voices(args)
     add_accompaniment(args, voices)
+    accompaniment_units = ACCOMPANIMENT_MIX_UNITS_PER_PART * len(voices)
+    full_mix_units = FULL_MIX_UNITS_PER_PART * len(voices)
+    # one rendering and one mix per part and the full mix
+    total_units = len(voices) * (1 + accompaniment_units) + full_mix_units
+    done_units = 0.0
+
+    def report(units: float) -> None:
+        nonlocal done_units
+        done_units += units
+        if progress:
+            progress(done_units, total_units, midi_data.length)
+
+    report(0)
     for part_name, track_numbers, instrument in voices:
         solo_part: Part = generate_solo_parts(
             midi_data, track_numbers, part_name, instrument, args.output)
         solo_parts.append(solo_part)
+        report(1)
 
     part: Part
     for part in solo_parts:
         generate_accompaniment(args, part, solo_parts)
+        report(accompaniment_units)
 
     generate_full_mp3(args, solo_parts)
+    report(full_mix_units)
 
 
 def create_voices(args: argparse.Namespace) -> list:
@@ -549,24 +572,25 @@ def get_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def convert(args: argparse.Namespace) -> None:
+def convert(args: argparse.Namespace, progress=None) -> None:
     """Generates the practice mp3s for the given arguments. Everything the
     conversion needs is passed in, so several conversions can run at once.
 
     Arguments:
         args {argparse.Namespace} -- arguments as returned by get_parser and set_defaults
+        progress -- optional callback, see separate_tracks_into_mp3s
     """
     prepare_output_directory(args.output)
     midi_file_path = check_format(args.file_path, args.output)
-    separate_tracks_into_mp3s(args, midi_file_path)
+    separate_tracks_into_mp3s(args, midi_file_path, progress)
     cleanup(args.output)
 
 
-def main(sys_args):
+def main(sys_args, progress=None):
     parser = get_parser()
     args = parser.parse_args(sys_args)
     set_defaults(args)
-    convert(args)
+    convert(args, progress)
 
 
 if __name__ == "__main__":
