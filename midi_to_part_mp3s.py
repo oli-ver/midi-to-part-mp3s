@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from typing import List, Dict
 
+import numpy  # type: ignore
 import sox  # type: ignore
 import mido  # type: ignore
 import music21  # type: ignore
@@ -17,6 +18,13 @@ sung_parts = ['soprano', 'alto', 'bass', 'tenor']
 DEFAULT_VOICE_MARGIN_DB = 8.0
 # peak level the mixes are scaled to, safely below clipping
 MIX_PEAK_AMPLITUDE = 0.9
+SAMPLE_RATE = 44100
+# the balance between the practised voice and the rest is checked in steps of
+# BALANCE_HOP_S and judged over BALANCE_WINDOW_S, so single notes don't pump
+BALANCE_HOP_S = 0.05
+BALANCE_WINDOW_S = 0.4
+# the other parts are lowered by at most this much, so they never drop out
+MAX_BALANCE_REDUCTION_DB = 12.0
 # instrument choices based off advice given here: http://www3.cpdl.org/wiki/index.php/User:Robert_Urmann
 MAPPING = {
     "soprano": 76,  # pan flute
@@ -270,12 +278,86 @@ def accompaniment_gains(own_part: Part, solo_parts: List[Part],
     return gains
 
 
+def read_audio(mp3_filepath: str) -> numpy.ndarray:
+    """Decodes an audio file to a float array of shape (channels, samples)"""
+    raw = subprocess.run(
+        ["sox", mp3_filepath, "-t", "raw", "-e", "floating-point", "-b", "32",
+         "-c", "2", "-r", str(SAMPLE_RATE), "-"],
+        capture_output=True, check=True).stdout
+    return numpy.frombuffer(raw, dtype=numpy.float32).reshape(-1, 2).T
+
+
+def write_mp3(samples: numpy.ndarray, output_file_path: str) -> None:
+    """Encodes a float array of shape (channels, samples) as mp3"""
+    pcm = (numpy.clip(samples, -1.0, 1.0) * 32767).astype('<i2').T.tobytes()
+    subprocess.run(["lame", "--quiet", "--signed", "-s", str(SAMPLE_RATE), "-r", "-",
+                    output_file_path], input=pcm, check=True)
+
+
+def _moving_average(values: numpy.ndarray, width: int) -> numpy.ndarray:
+    return numpy.convolve(values, numpy.ones(width) / width, mode='same')
+
+
+def balance_curve(own: numpy.ndarray, rest: numpy.ndarray, voice_margin_db: float) -> numpy.ndarray:
+    """Calculates a time dependent factor for the other parts. Wherever the
+    practised voice sings, the other parts are lowered just as far as needed to
+    keep the practised voice voice_margin_db above them, e.g. when it sings piano
+    while the others sing forte. Elsewhere the factor is 1, so the dynamics of the
+    score are kept as long as they don't cover the practised voice.
+
+    Arguments:
+        own {numpy.ndarray} -- practised voice, shape (channels, samples)
+        rest {numpy.ndarray} -- sum of the other parts, same shape
+
+    Returns:
+        numpy.ndarray -- factor per sample for the other parts, between 0 and 1
+    """
+    hop = int(SAMPLE_RATE * BALANCE_HOP_S)
+    width = max(1, int(BALANCE_WINDOW_S / BALANCE_HOP_S))
+    frames = own.shape[1] // hop
+    if frames == 0:
+        return numpy.ones(own.shape[1])
+
+    def frame_power(signal):
+        power = (signal[:, :frames * hop] ** 2).mean(axis=0)
+        return _moving_average(power.reshape(frames, hop).mean(axis=1), width)
+
+    own_power = frame_power(own)
+    rest_power = frame_power(rest)
+    allowed_rest_power = own_power / 10 ** (voice_margin_db / 10)
+    singing = own_power > own_power.max() * 1e-4
+    factor = numpy.ones(frames)
+    too_loud = singing & (rest_power > allowed_rest_power)
+    factor[too_loud] = numpy.sqrt(allowed_rest_power[too_loud] / rest_power[too_loud])
+    factor = numpy.maximum(factor, 10 ** (-MAX_BALANCE_REDUCTION_DB / 20))
+    # lower a little earlier and recover a little later than needed, then smooth
+    # the transitions so the other parts don't jump in volume
+    padded = numpy.pad(factor, width, mode='edge')
+    factor = numpy.lib.stride_tricks.sliding_window_view(
+        padded, 2 * width + 1).min(axis=1)
+    factor = _moving_average(numpy.pad(factor, width, mode='edge'), width)[width:-width]
+    frame_centers = (numpy.arange(frames) + 0.5) * hop
+    return numpy.interp(numpy.arange(own.shape[1]), frame_centers, factor)
+
+
 def generate_accompaniment(own_part, solo_parts) -> None:
     gains = accompaniment_gains(own_part, solo_parts, args.voice_margin,
                                 args.instrumental_volume)
     output_file_path = "{}/{} with accompaniment.mp3".format(
         args.output, own_part.name)
-    mix_parts(solo_parts, gains, output_file_path)
+
+    signals = [read_audio(part.mp3_filepath()) for part in solo_parts]
+    length = max(signal.shape[1] for signal in signals)
+    own = numpy.zeros((2, length), dtype=numpy.float32)
+    rest = numpy.zeros((2, length), dtype=numpy.float32)
+    for part, gain, signal in zip(solo_parts, gains, signals):
+        target = own if part.name == own_part.name else rest
+        target[:, :signal.shape[1]] += gain * signal
+    mix = own + rest * balance_curve(own, rest, args.voice_margin)
+    peak = numpy.abs(mix).max()
+    if peak > 0:
+        mix *= MIX_PEAK_AMPLITUDE / peak
+    write_mp3(mix, output_file_path)
 
 
 def generate_full_mp3(solo_parts: List[Part]) -> None:
