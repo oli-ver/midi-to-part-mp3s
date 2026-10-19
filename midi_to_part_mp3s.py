@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import copy
 import os
 import sys
 import shutil
@@ -29,6 +30,12 @@ MAX_BALANCE_REDUCTION_DECIBEL = 12.0
 # take about this many units per mixed part (measured with the test fixtures)
 ACCOMPANIMENT_MIX_UNITS_PER_PART = 0.6
 FULL_MIX_UNITS_PER_PART = 0.4
+# tempo of a midi file without tempo events, 120 beats per minute
+DEFAULT_MIDI_TEMPO = 500000
+# largest tempo value a midi file can hold (3 bytes, microseconds per beat)
+MAX_MIDI_TEMPO = 0xFFFFFF
+# slower practice versions can be made at this range of the original tempo
+SLOW_TEMPO_RANGE = (10, 99)
 # instrument choices based off advice given here: http://www3.cpdl.org/wiki/index.php/User:Robert_Urmann
 MAPPING = {
     "soprano": 76,  # pan flute
@@ -112,7 +119,8 @@ def instrument_number_for_part(part: str, instrument: int = None) -> int:
         return MAPPING[part]
 
 
-def generate_solo_parts(midi_data: mido.MidiFile, track_numbers: List[int], part_name: str, instrument_number: int, output_dir: str) -> Part:
+def generate_solo_parts(midi_data: mido.MidiFile, track_numbers: List[int], part_name: str, instrument_number: int, output_dir: str,
+                        file_suffix: str = '') -> Part:
     """Generates a solo part and returns a Part object describing it
 
     Arguments:
@@ -121,6 +129,7 @@ def generate_solo_parts(midi_data: mido.MidiFile, track_numbers: List[int], part
         part_name {str} -- name of the past
         instrument_number {int} -- id of the instrument in the configured soundfont
         output_dir {str} -- folder the midi and mp3 files are written to
+        file_suffix {str} -- appended to the file name, e.g. for slower versions
 
     Returns:
         Part -- generated Part object
@@ -134,7 +143,7 @@ def generate_solo_parts(midi_data: mido.MidiFile, track_numbers: List[int], part
 
     if part_name != 'accompaniment':
         change_instrument(midi, instrument_number)
-    new_file_path = "{}/{}.midi".format(output_dir, part_name)
+    new_file_path = "{}/{}{}.midi".format(output_dir, part_name, file_suffix)
     midi.save(new_file_path)
 
     part = Part(name=part_name, midi=midi, midi_filepath=new_file_path)
@@ -348,11 +357,12 @@ def balance_curve(own: numpy.ndarray, rest: numpy.ndarray, voice_margin_decibel:
     return numpy.interp(numpy.arange(own.shape[1]), frame_centers, factor)
 
 
-def generate_accompaniment(args: argparse.Namespace, own_part, solo_parts) -> None:
+def generate_accompaniment(args: argparse.Namespace, own_part, solo_parts,
+                           file_suffix: str = '') -> None:
     gains = accompaniment_gains(own_part, solo_parts, args.voice_margin,
                                 args.instrumental_volume)
-    output_file_path = "{}/{} with accompaniment.mp3".format(
-        args.output, own_part.name)
+    output_file_path = "{}/{} with accompaniment{}.mp3".format(
+        args.output, own_part.name, file_suffix)
 
     signals = [read_audio(part.mp3_filepath()) for part in solo_parts]
     length = max(signal.shape[1] for signal in signals)
@@ -368,12 +378,13 @@ def generate_accompaniment(args: argparse.Namespace, own_part, solo_parts) -> No
     write_mp3(mix, output_file_path)
 
 
-def generate_full_mp3(args: argparse.Namespace, solo_parts: List[Part]) -> None:
+def generate_full_mp3(args: argparse.Namespace, solo_parts: List[Part],
+                      file_suffix: str = '') -> None:
     # all voices equally loud, the accompaniment as configured
     gains = [loudness_normalizing_gain(part) *
              (args.instrumental_volume if part.name == 'accompaniment' else 1.0)
              for part in solo_parts]
-    output_file_path = "{}/all.mp3".format(args.output)
+    output_file_path = "{}/all{}.mp3".format(args.output, file_suffix)
     mix_parts(solo_parts, gains, output_file_path)
 
 
@@ -406,6 +417,35 @@ def separate_out_tempo_map(midi_data: mido.MidiFile) -> mido.MidiFile:
     return midi
 
 
+def scale_tempo(midi_data: mido.MidiFile, factor: float) -> mido.MidiFile:
+    """Returns a copy of the midi data that plays at factor times the original
+    speed, e.g. 0.75 for 75 % tempo. Only the tempo events change, so the pitch
+    stays the same.
+
+    Arguments:
+        midi_data {mido.MidiFile} -- original midi data, it is not changed
+        factor {float} -- new speed relative to the original
+
+    Returns:
+        mido.MidiFile -- midi data with the scaled tempo
+    """
+    scaled: mido.MidiFile = copy.deepcopy(midi_data)
+    found = False
+    for track in scaled.tracks:
+        for index, message in enumerate(track):
+            if message.type == 'set_tempo':
+                found = True
+                # the tempo is stored as microseconds per beat, slower = longer beats.
+                # Replaced instead of changed, as tracks can share message objects
+                # (see separate_out_tempo_map), which would be scaled twice
+                track[index] = message.copy(
+                    tempo=min(MAX_MIDI_TEMPO, round(message.tempo / factor)))
+    if not found:
+        scaled.tracks[0].insert(0, mido.MetaMessage(
+            'set_tempo', tempo=round(DEFAULT_MIDI_TEMPO / factor), time=0))
+    return scaled
+
+
 def ensure_midi_well_formatted(midi_data: mido.MidiFile) -> mido.MidiFile:
     if has_separate_tempo_map(midi_data.tracks[0]):
         return midi_data
@@ -415,19 +455,22 @@ def ensure_midi_well_formatted(midi_data: mido.MidiFile) -> mido.MidiFile:
 
 def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str,
                               progress=None) -> None:
-    """Generates the mp3s. progress is called as progress(done_units, total_units,
-    audio_seconds) at the start and after every step."""
+    """Generates the mp3s, and the same again for every slower tempo. progress is
+    called as progress(done_units, total_units, audio_seconds) at the start and
+    after every step."""
     midi_data: mido.MidiFile = ensure_midi_well_formatted(
         mido.MidiFile(midifile_path))
-    solo_parts: List[Part] = []
     voices: list = create_voices(args)
     add_accompaniment(args, voices)
     accompaniment_units = ACCOMPANIMENT_MIX_UNITS_PER_PART * len(voices)
     full_mix_units = FULL_MIX_UNITS_PER_PART * len(voices)
     # the instrumental accompaniment is no practised voice, so it gets no mix of its own
     sung_voices = [voice for voice in voices if voice[0] != 'accompaniment']
-    # one rendering per part, one mix per sung voice and the full mix
-    total_units = len(voices) + len(sung_voices) * accompaniment_units + full_mix_units
+    tempos = [100] + sorted(set(args.slow_tempo), reverse=True)
+    # one rendering per part, one mix per sung voice and the full mix, per tempo. A
+    # slower version is longer and takes longer in proportion, e.g. twice as long at 50 %
+    total_units = sum(100 / tempo for tempo in tempos) * \
+        (len(voices) + len(sung_voices) * accompaniment_units + full_mix_units)
     done_units = 0.0
 
     def report(units: float) -> None:
@@ -437,21 +480,29 @@ def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str,
             progress(done_units, total_units, midi_data.length)
 
     report(0)
-    for part_name, track_numbers, instrument in voices:
-        solo_part: Part = generate_solo_parts(
-            midi_data, track_numbers, part_name, instrument, args.output)
-        solo_parts.append(solo_part)
-        report(1)
+    for tempo in tempos:
+        if tempo == 100:
+            version_data, file_suffix = midi_data, ''
+        else:
+            version_data = scale_tempo(midi_data, tempo / 100)
+            file_suffix = ' ({}% tempo)'.format(tempo)
+        stretch = 100 / tempo
+        solo_parts: List[Part] = []
+        for part_name, track_numbers, instrument in voices:
+            solo_part: Part = generate_solo_parts(
+                version_data, track_numbers, part_name, instrument, args.output, file_suffix)
+            solo_parts.append(solo_part)
+            report(stretch)
 
-    part: Part
-    for part in solo_parts:
-        if part.name == 'accompaniment':
-            continue
-        generate_accompaniment(args, part, solo_parts)
-        report(accompaniment_units)
+        part: Part
+        for part in solo_parts:
+            if part.name == 'accompaniment':
+                continue
+            generate_accompaniment(args, part, solo_parts, file_suffix)
+            report(stretch * accompaniment_units)
 
-    generate_full_mp3(args, solo_parts)
-    report(full_mix_units)
+        generate_full_mp3(args, solo_parts, file_suffix)
+        report(stretch * full_mix_units)
 
 
 def create_voices(args: argparse.Namespace) -> list:
@@ -545,6 +596,18 @@ def set_defaults(args: argparse.Namespace) -> None:
             args.bass = [int(track) for track in args.bass.split(',')]
 
 
+def slow_tempo_percent(value: str) -> int:
+    """Checks a --slow-tempo value, e.g. 75 for 75 % of the original tempo"""
+    try:
+        percent = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("{} is not a whole number".format(value))
+    if not SLOW_TEMPO_RANGE[0] <= percent <= SLOW_TEMPO_RANGE[1]:
+        raise argparse.ArgumentTypeError("the tempo must be between {} and {} percent".format(
+            *SLOW_TEMPO_RANGE))
+    return percent
+
+
 def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("-s", "--soprano", type=str,
@@ -567,6 +630,9 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument("-i", "--instrumental-accompaniment", help='midi tracks that \
           appear in all accompaniment mp3s e.g. piano or orchestra', nargs='+',
                         type=int, default=[])
+    parser.add_argument("-st", "--slow-tempo", nargs='+', type=slow_tempo_percent, default=[],
+                        help='additionally create all files at these percentages of the \
+                              original tempo, e.g. "75" or "75 50". The pitch stays the same')
     parser.add_argument("-o", "--output", type=str, default=output_directory,
                         help="Output folder for the files. Defaults to './output'")
     requiredNamed = parser.add_argument_group('mandatory argument')

@@ -96,6 +96,9 @@ $(function () {
         if ($('#instrument-selector option:selected').val() != '-1') {
             downloadFormData.append('instrument', $('#instrument-selector option:selected').val())
         }
+        if ($('#slow-tempo-selector').val()) {
+            downloadFormData.append('slow_tempo', $('#slow-tempo-selector').val())
+        }
         downloadFormData.append('musicxml', window.musicXml)
         showProgress(0, 'Starting the conversion…')
         $.ajax(

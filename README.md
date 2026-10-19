@@ -45,6 +45,7 @@ usage: midi-to-part-mp3s [-h]
                          [-s SOPRANO] [-a ALT] [-t TENOR] [-b BASS]
                          [-iv INSTRUMENTAL_VOLUME] [-m VOICE_MARGIN]
                          [-i INSTRUMENTAL_ACCOMPANIMENT [INSTRUMENTAL_ACCOMPANIMENT ...]]
+                         [-st SLOW_TEMPO [SLOW_TEMPO ...]]
                          midifile_path
 
 positional arguments:
@@ -68,8 +69,16 @@ optional arguments:
   -i INSTRUMENTAL_ACCOMPANIMENT [INSTRUMENTAL_ACCOMPANIMENT ...], --instrumental-accompaniment INSTRUMENTAL_ACCOMPANIMENT [INSTRUMENTAL_ACCOMPANIMENT ...]
                         midi tracks that appear in all accompaniment mp3s e.g.
                         piano or orchestra
+  -st SLOW_TEMPO [SLOW_TEMPO ...], --slow-tempo SLOW_TEMPO [SLOW_TEMPO ...]
+                        additionally create all files at these percentages of
+                        the original tempo, e.g. "75" or "75 50". The pitch
+                        stays the same
 
 ```
+
+With `--slow-tempo 75` every file is also created at 75 % of the original tempo, e.g.
+`soprano 1 with accompaniment (75% tempo).mp3`. The web app offers the same as "Also create a
+slower version".
 
 How the volumes of the practised voice and the other parts are calculated is explained in
 [docs/voice-loudness.md](docs/voice-loudness.md).
