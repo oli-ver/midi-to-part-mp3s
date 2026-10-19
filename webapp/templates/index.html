@@ -107,7 +107,25 @@
                     <div class="row mt-3">
                     <div class="col-sm-2">
                         <div class="card">
-                            <div class="card-header">Accompaniment</div>
+                            <div class="card-header d-flex align-items-center justify-content-between">
+                                Accompaniment
+                                <button type="button" class="info-button" popovertarget="accompaniment-info"
+                                    aria-label="What is Accompaniment?">i</button>
+                            </div>
+                            <div popover id="accompaniment-info" class="info-popover">
+                                <h6>Accompaniment</h6>
+                                <p>For piano, organ or orchestra tracks that nobody in the choir sings.</p>
+                                <ul>
+                                    <li>They play along quietly in every practice track, e.g. "soprano 1 with
+                                        accompaniment.mp3", and in "all.mp3".</li>
+                                    <li>They are no practice voice: no practice track is created for them, only
+                                        "accompaniment.mp3" with the accompaniment alone.</li>
+                                    <li>How loud they are is set with the slider "Accompaniment compared to each
+                                        other voice". Your own voice always stays louder than everything else
+                                        together.</li>
+                                </ul>
+                                <p class="mb-0">Tracks left in "Midi Tracks" are not included in any file.</p>
+                            </div>
                             <div class="card-body" id='accompaniment-tracks' ondrop="drop(event)"
                                 ondragover="allowDrop(event)"></div>
                         </div>
