@@ -73,6 +73,8 @@ optional arguments:
                         additionally create all files at these percentages of
                         the original tempo, e.g. "75" or "75 50". The pitch
                         stays the same
+  -ci, --count-in       start all files with one bar of clicks to count in
+  -cl, --click          add a quiet click on every beat throughout the piece
 
 ```
 

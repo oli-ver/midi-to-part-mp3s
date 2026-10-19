@@ -36,6 +36,17 @@ DEFAULT_MIDI_TEMPO = 500000
 MAX_MIDI_TEMPO = 0xFFFFFF
 # slower practice versions can be made at this range of the original tempo
 SLOW_TEMPO_RANGE = (10, 99)
+CLICK_MIX_UNITS_PER_PART = 0.3
+# count-in and click are played by wood blocks of the general midi drum kit,
+# which is always on midi channel 10 (9 when counting from 0)
+PERCUSSION_CHANNEL = 9
+CLICK_ACCENT_NOTE = 76  # hi wood block, first beat of a bar
+CLICK_NOTE = 77  # low wood block, other beats
+COUNT_IN_VELOCITY = 110
+# the click during the piece is quieter than the count-in, about 10 dB
+CLICK_VELOCITY = 60
+# the loudest count-in click peaks this many dB above the level of the practised voice
+CLICK_PEAK_DECIBEL = 10.0
 # instrument choices based off advice given here: http://www3.cpdl.org/wiki/index.php/User:Robert_Urmann
 MAPPING = {
     "soprano": 76,  # pan flute
@@ -358,7 +369,7 @@ def balance_curve(own: numpy.ndarray, rest: numpy.ndarray, voice_margin_decibel:
 
 
 def generate_accompaniment(args: argparse.Namespace, own_part, solo_parts,
-                           file_suffix: str = '') -> None:
+                           file_suffix: str = '', click: Part = None) -> None:
     gains = accompaniment_gains(own_part, solo_parts, args.voice_margin,
                                 args.instrumental_volume)
     output_file_path = "{}/{} with accompaniment{}.mp3".format(
@@ -372,6 +383,9 @@ def generate_accompaniment(args: argparse.Namespace, own_part, solo_parts,
         target = own if part.name == own_part.name else rest
         target[:, :signal.shape[1]] += gain * signal
     mix = own + rest * balance_curve(own, rest, args.voice_margin)
+    if click:
+        # the practised voice was brought to 0 dB above
+        mix = add_signal(mix, click_gain(click, 0.0) * read_audio(click.mp3_filepath()))
     peak = numpy.abs(mix).max()
     if peak > 0:
         mix *= MIX_PEAK_AMPLITUDE / peak
@@ -379,13 +393,20 @@ def generate_accompaniment(args: argparse.Namespace, own_part, solo_parts,
 
 
 def generate_full_mp3(args: argparse.Namespace, solo_parts: List[Part],
-                      file_suffix: str = '') -> None:
+                      file_suffix: str = '', click: Part = None) -> None:
     # all voices equally loud, the accompaniment as configured
     gains = [loudness_normalizing_gain(part) *
              (args.instrumental_volume if part.name == 'accompaniment' else 1.0)
              for part in solo_parts]
+    parts = solo_parts
+    if click:
+        # level of all parts together: their energies add up (energy = amplitude^2)
+        total_power = sum((gain * decibel_to_amplitude(part.rms_decibel)) ** 2
+                          for part, gain in zip(solo_parts, gains) if part.rms_decibel is not None)
+        parts = solo_parts + [click]
+        gains = gains + [click_gain(click, 10 * numpy.log10(max(total_power, 1.0)))]
     output_file_path = "{}/all{}.mp3".format(args.output, file_suffix)
-    mix_parts(solo_parts, gains, output_file_path)
+    mix_parts(parts, gains, output_file_path)
 
 
 def has_separate_tempo_map(track0: mido.midifiles.tracks.MidiTrack) -> bool:
@@ -395,16 +416,22 @@ def has_separate_tempo_map(track0: mido.midifiles.tracks.MidiTrack) -> bool:
 def separate_out_tempo_map(midi_data: mido.MidiFile) -> mido.MidiFile:
     tempo_map = []
     track1 = []
+    # delta time of the events left out of the tempo map, added to the next one
+    # so the tempo map events keep their position
+    skipped_time = 0
 
     for event in midi_data.tracks[0]:
         if event.is_meta:
             if event.type in ["instrument_name", "key_signature"]:
                 track1.append(event)
+                skipped_time += event.time
             else:
                 track1.append(event)
-                tempo_map.append(event)
+                tempo_map.append(event.copy(time=event.time + skipped_time))
+                skipped_time = 0
         else:
             track1.append(event)
+            skipped_time += event.time
 
     midi = mido.MidiFile()
     midi.ticks_per_beat = midi_data.ticks_per_beat
@@ -444,6 +471,171 @@ def scale_tempo(midi_data: mido.MidiFile, factor: float) -> mido.MidiFile:
         scaled.tracks[0].insert(0, mido.MetaMessage(
             'set_tempo', tempo=round(DEFAULT_MIDI_TEMPO / factor), time=0))
     return scaled
+def bar_length(numerator: int, denominator: int, ticks_per_beat: int) -> int:
+    """Length of a bar in midi ticks, ticks_per_beat counts quarter notes"""
+    return numerator * ticks_per_beat * 4 // denominator
+
+
+def time_signatures(midi_data: mido.MidiFile) -> List[tuple]:
+    """Returns the time signatures of the tempo map as (tick, numerator,
+    denominator), 4/4 if there is none"""
+    signatures = []
+    tick = 0
+    for message in midi_data.tracks[0]:
+        tick += message.time
+        if message.type == 'time_signature':
+            if signatures and signatures[-1][0] == tick:
+                signatures.pop()
+            signatures.append((tick, message.numerator, message.denominator))
+    if not signatures or signatures[0][0] > 0:
+        signatures.insert(0, (0, 4, 4))
+    return signatures
+
+
+def count_in_signature(midi_data: mido.MidiFile) -> tuple:
+    """Time signature of the count-in bar. Usually the first one of the piece, but
+    if the piece starts with a pickup bar (e.g. a 1/4 bar before 3/4), the full bar
+    after it is counted in.
+
+    Returns:
+        tuple -- numerator and denominator
+    """
+    signatures = time_signatures(midi_data)
+    first_bar = bar_length(signatures[0][1], signatures[0][2], midi_data.ticks_per_beat)
+    if len(signatures) > 1 and signatures[1][0] == first_bar and \
+            bar_length(signatures[1][1], signatures[1][2], midi_data.ticks_per_beat) > first_bar:
+        return signatures[1][1:]
+    return signatures[0][1:]
+
+
+def add_count_in(midi_data: mido.MidiFile) -> mido.MidiFile:
+    """Returns a copy of the midi data in which everything starts one bar later,
+    so a count-in fits before it. Tempo, instrument and other settings at the start
+    stay in place, so the count-in bar is played in the tempo of the piece.
+
+    Arguments:
+        midi_data {mido.MidiFile} -- midi data with a separate tempo map, it is not changed
+
+    Returns:
+        mido.MidiFile -- the moved midi data
+    """
+    numerator, denominator = count_in_signature(midi_data)
+    shift = bar_length(numerator, denominator, midi_data.ticks_per_beat)
+    moved = mido.MidiFile(type=midi_data.type, ticks_per_beat=midi_data.ticks_per_beat)
+    for index, track in enumerate(midi_data.tracks):
+        events = []
+        if index == 0:
+            events.append((0, mido.MetaMessage('time_signature', numerator=numerator,
+                                               denominator=denominator)))
+        tick = 0
+        for message in track:
+            tick += message.time
+            keep_at_start = tick == 0 and message.type not in (
+                'note_on', 'note_off', 'time_signature')
+            events.append((tick if keep_at_start else tick + shift, message))
+        moved_track = mido.MidiTrack()
+        last_tick = 0
+        # new message objects, as tracks can share them (see separate_out_tempo_map)
+        for tick, message in sorted(events, key=lambda event: event[0]):
+            moved_track.append(message.copy(time=tick - last_tick))
+            last_tick = tick
+        moved.tracks.append(moved_track)
+    return moved
+
+
+def last_note_tick(midi_data: mido.MidiFile) -> int:
+    """Tick at which the last note of the piece ends"""
+    end = 0
+    for track in midi_data.tracks:
+        tick = 0
+        for message in track:
+            tick += message.time
+            if message.type in ('note_on', 'note_off'):
+                end = max(end, tick)
+    return end
+
+
+def click_track(midi_data: mido.MidiFile, count_in: bool, click: bool) -> mido.MidiTrack:
+    """Creates a track with a click on every beat, the first beat of each bar
+    accented. With count_in the first bar is the count-in (see add_count_in), with
+    click a quieter click continues until the end of the piece.
+
+    Arguments:
+        midi_data {mido.MidiFile} -- midi data with a separate tempo map
+        count_in {bool} -- whether the first bar is a count-in bar
+        click {bool} -- whether to click throughout the piece
+
+    Returns:
+        mido.MidiTrack -- track with the clicks on the percussion channel
+    """
+    ticks_per_beat = midi_data.ticks_per_beat
+    signatures = time_signatures(midi_data)
+    count_in_end = bar_length(*signatures[0][1:], ticks_per_beat) if count_in else 0
+    end = last_note_tick(midi_data) if click else count_in_end
+    click_length = ticks_per_beat // 8
+    events = []
+    bar_start = 0
+    while bar_start < end:
+        _, numerator, denominator = [signature for signature in signatures
+                                     if signature[0] <= bar_start][-1]
+        next_changes = [signature[0] for signature in signatures if signature[0] > bar_start]
+        bar_end = min([bar_start + bar_length(numerator, denominator, ticks_per_beat)] +
+                      next_changes)
+        beat = ticks_per_beat * 4 // denominator
+        for beat_start in range(bar_start, min(bar_end, end), beat):
+            note = CLICK_ACCENT_NOTE if beat_start == bar_start else CLICK_NOTE
+            velocity = COUNT_IN_VELOCITY if beat_start < count_in_end else CLICK_VELOCITY
+            events.append((beat_start, mido.Message(
+                'note_on', channel=PERCUSSION_CHANNEL, note=note, velocity=velocity)))
+            events.append((beat_start + click_length, mido.Message(
+                'note_off', channel=PERCUSSION_CHANNEL, note=note, velocity=0)))
+        bar_start = bar_end
+    track = mido.MidiTrack()
+    track.append(mido.MetaMessage('track_name', name='click', time=0))
+    last_tick = 0
+    for tick, message in sorted(events, key=lambda event: event[0]):
+        track.append(message.copy(time=tick - last_tick))
+        last_tick = tick
+    return track
+
+
+def generate_click(args: argparse.Namespace, midi_data: mido.MidiFile,
+                   file_suffix: str = '') -> Part:
+    """Renders the count-in and the click (see click_track) to click.mp3"""
+    midi = mido.MidiFile(ticks_per_beat=midi_data.ticks_per_beat)
+    midi.tracks.append(midi_data.tracks[0])
+    midi.tracks.append(click_track(midi_data, args.count_in, args.click))
+    midi_filepath = "{}/click{}.midi".format(args.output, file_suffix)
+    midi.save(midi_filepath)
+    return Part(name='click', midi=midi, midi_filepath=midi_filepath)
+
+
+def click_gain(click: Part, voice_rms_decibel: float) -> float:
+    """Amplitude factor for the click, relative to a voice at the given level"""
+    if click.peak_decibel is None:
+        return 0.0
+    return decibel_to_amplitude(voice_rms_decibel + CLICK_PEAK_DECIBEL - click.peak_decibel)
+
+
+def add_signal(mix: numpy.ndarray, signal: numpy.ndarray) -> numpy.ndarray:
+    """Adds two arrays of shape (channels, samples), padding the shorter one"""
+    length = max(mix.shape[1], signal.shape[1])
+    total = numpy.zeros((2, length), dtype=numpy.float32)
+    total[:, :mix.shape[1]] += mix
+    total[:, :signal.shape[1]] += signal
+    return total
+
+
+def add_click_to_solo_part(part: Part, click: Part) -> None:
+    """Adds the click to the mp3 of a single part. Done last, as the mixes need
+    the parts without click."""
+    level = part.rms_decibel if part.rms_decibel is not None else -20.0
+    mix = add_signal(read_audio(part.mp3_filepath()),
+                     click_gain(click, level) * read_audio(click.mp3_filepath()))
+    peak = numpy.abs(mix).max()
+    if peak > MIX_PEAK_AMPLITUDE:
+        mix *= MIX_PEAK_AMPLITUDE / peak
+    write_mp3(mix, part.mp3_filepath())
 
 
 def ensure_midi_well_formatted(midi_data: mido.MidiFile) -> mido.MidiFile:
@@ -460,6 +652,9 @@ def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str,
     after every step."""
     midi_data: mido.MidiFile = ensure_midi_well_formatted(
         mido.MidiFile(midifile_path))
+    if args.count_in:
+        midi_data = add_count_in(midi_data)
+    with_click = args.count_in or args.click
     voices: list = create_voices(args)
     add_accompaniment(args, voices)
     accompaniment_units = ACCOMPANIMENT_MIX_UNITS_PER_PART * len(voices)
@@ -467,10 +662,13 @@ def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str,
     # the instrumental accompaniment is no practised voice, so it gets no mix of its own
     sung_voices = [voice for voice in voices if voice[0] != 'accompaniment']
     tempos = [100] + sorted(set(args.slow_tempo), reverse=True)
-    # one rendering per part, one mix per sung voice and the full mix, per tempo. A
-    # slower version is longer and takes longer in proportion, e.g. twice as long at 50 %
-    total_units = sum(100 / tempo for tempo in tempos) * \
-        (len(voices) + len(sung_voices) * accompaniment_units + full_mix_units)
+    # one rendering per part, one mix per sung voice and the full mix, with a click
+    # also its rendering and adding it to every part, per tempo. A slower version is
+    # longer and takes longer in proportion, e.g. twice as long at 50 %
+    units_per_version = len(voices) + len(sung_voices) * accompaniment_units + full_mix_units
+    if with_click:
+        units_per_version += 1 + len(voices) * CLICK_MIX_UNITS_PER_PART
+    total_units = sum(100 / tempo for tempo in tempos) * units_per_version
     done_units = 0.0
 
     def report(units: float) -> None:
@@ -494,15 +692,26 @@ def separate_tracks_into_mp3s(args: argparse.Namespace, midifile_path: str,
             solo_parts.append(solo_part)
             report(stretch)
 
+        click = None
+        if with_click:
+            click = generate_click(args, version_data, file_suffix)
+            report(stretch)
+
         part: Part
         for part in solo_parts:
             if part.name == 'accompaniment':
                 continue
-            generate_accompaniment(args, part, solo_parts, file_suffix)
+            generate_accompaniment(args, part, solo_parts, file_suffix, click)
             report(stretch * accompaniment_units)
 
-        generate_full_mp3(args, solo_parts, file_suffix)
+        generate_full_mp3(args, solo_parts, file_suffix, click)
         report(stretch * full_mix_units)
+
+        if click:
+            for part in solo_parts:
+                add_click_to_solo_part(part, click)
+                report(stretch * CLICK_MIX_UNITS_PER_PART)
+            os.unlink(click.mp3_filepath())
 
 
 def create_voices(args: argparse.Namespace) -> list:
@@ -633,6 +842,10 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument("-st", "--slow-tempo", nargs='+', type=slow_tempo_percent, default=[],
                         help='additionally create all files at these percentages of the \
                               original tempo, e.g. "75" or "75 50". The pitch stays the same')
+    parser.add_argument("-ci", "--count-in", action='store_true',
+                        help='start all files with one bar of clicks to count in')
+    parser.add_argument("-cl", "--click", action='store_true',
+                        help='add a quiet click on every beat throughout the piece')
     parser.add_argument("-o", "--output", type=str, default=output_directory,
                         help="Output folder for the files. Defaults to './output'")
     requiredNamed = parser.add_argument_group('mandatory argument')
