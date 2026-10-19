@@ -34,6 +34,9 @@ ALTO: str = "alto"
 TENOR: str = "tenor"
 BASS: str = "bass"
 INSTRUMENT: str = "instrument"
+ACCOMPANIMENT: str = "accompaniment"
+VOICE_MARGIN: str = "voice_margin"
+ACCOMPANIMENT_VOLUME: str = "accompaniment_volume"
 MUSICXML: str = "musicxml"
 OUTPUT: str = "output"
 
@@ -41,6 +44,9 @@ TEMP_FOLDER: str = "tmp"
 OUTPUT_FOLDER: str = "out"
 FILENAME: str = "part-mp3s.zip"
 ALLOWED_EXTENSIONS = (".mid", ".midi", ".mxl", ".musicxml", ".xml")
+# allowed slider values in dB, see docs/voice-loudness.md
+VOICE_MARGIN_RANGE_DB = (0.0, 20.0)
+ACCOMPANIMENT_VOLUME_RANGE_DB = (-12.0, 12.0)
 # conversions running at the same time, further jobs wait in a queue
 MAX_PARALLEL_JOBS = int(os.environ.get("MAX_PARALLEL_JOBS", "2"))
 # finished jobs are deleted after this many seconds, even if never downloaded
@@ -194,7 +200,24 @@ def _arguments_from_form(random_folder_name: str):
         request.form.getlist(BASS),
         request.form.get(INSTRUMENT),
         random_folder_name,
+        request.form.getlist(ACCOMPANIMENT),
+        _db_from_form(VOICE_MARGIN, VOICE_MARGIN_RANGE_DB),
+        _db_from_form(ACCOMPANIMENT_VOLUME, ACCOMPANIMENT_VOLUME_RANGE_DB),
     )
+
+
+def _db_from_form(parameter: str, allowed_range):
+    """Returns the dB value of a slider, or None if it was not sent"""
+    value = request.form.get(parameter)
+    if not value:
+        return None
+    try:
+        db_value = float(value)
+    except ValueError:
+        abort(400, f"{parameter} must be a number")
+    if not allowed_range[0] <= db_value <= allowed_range[1]:
+        abort(400, f"{parameter} must be between {allowed_range[0]} and {allowed_range[1]} dB")
+    return db_value
 
 
 def _create_argument_list(
@@ -205,6 +228,9 @@ def _create_argument_list(
     bass_tracks,
     instrument_id,
     random_folder_name,
+    accompaniment_tracks=None,
+    voice_margin_db=None,
+    accompaniment_volume_db=None,
 ) -> List[str]:
     argument_list: List[str] = ["-f", midi_file_path]
     _list_append_track_id(argument_list, SOPRANO, soprano_tracks)
@@ -212,6 +238,17 @@ def _create_argument_list(
     _list_append_track_id(argument_list, TENOR, tenor_tracks)
     _list_append_track_id(argument_list, BASS, bass_tracks)
     _single_append_argument(argument_list, INSTRUMENT, instrument_id)
+    if accompaniment_tracks:
+        # the accompaniment needs the tempo map (track 0) like the voices do
+        argument_list.append("--instrumental-accompaniment")
+        argument_list.append("0")
+        argument_list.extend(str(int(track_id) + 1) for track_id in accompaniment_tracks)
+    if voice_margin_db is not None:
+        argument_list.extend(["--voice-margin", str(voice_margin_db)])
+    if accompaniment_volume_db is not None:
+        # the slider is in dB, the command line expects an amplitude factor
+        argument_list.extend(["--instrumental-volume",
+                              str(midi_to_part_mp3s.db_to_amplitude(accompaniment_volume_db))])
 
     output_folder = f"{random_folder_name}/{OUTPUT_FOLDER}"
     _single_append_argument(argument_list, OUTPUT, output_folder)

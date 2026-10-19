@@ -40,7 +40,8 @@
 #soprano-tracks,
 #alto-tracks,
 #tenor-tracks,
-#bass-tracks {
+#bass-tracks,
+#accompaniment-tracks {
     min-height: 4rem;
     border: 2px dashed var(--bs-border-color);
     border-radius: .25rem;

@@ -73,6 +73,14 @@ $(function () {
         return false;
     }
 
+    $('#voice-margin').on('input', function () {
+        $('#voice-margin-value').text(this.value + ' dB')
+    })
+
+    $('#accompaniment-volume').on('input', function () {
+        $('#accompaniment-volume-value').text(dbText(this.value))
+    })
+
     $('#btDownload').click(function () {
         $(this).prop('disabled', true);
         $('#errorMessage').text('')
@@ -82,6 +90,9 @@ $(function () {
         $("#alto-tracks :input").each(function (i, val) { downloadFormData.append('alto', val.value) })
         $("#tenor-tracks :input").each(function (i, val) { downloadFormData.append('tenor', val.value) })
         $("#bass-tracks :input").each(function (i, val) { downloadFormData.append('bass', val.value) })
+        $("#accompaniment-tracks :input").each(function (i, val) { downloadFormData.append('accompaniment', val.value) })
+        downloadFormData.append('voice_margin', $('#voice-margin').val())
+        downloadFormData.append('accompaniment_volume', $('#accompaniment-volume').val())
         if ($('#instrument-selector option:selected').val() != '-1') {
             downloadFormData.append('instrument', $('#instrument-selector option:selected').val())
         }
@@ -144,6 +155,10 @@ function remainingText(seconds) {
     }
     let minutes = Math.round(seconds / 60)
     return 'About ' + minutes + (minutes === 1 ? ' minute' : ' minutes') + ' left'
+}
+
+function dbText(value) {
+    return (value > 0 ? '+' : '') + value + ' dB'
 }
 
 function showProgress(percent, text) {
