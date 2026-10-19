@@ -324,12 +324,14 @@ def balance_curve(own: numpy.ndarray, rest: numpy.ndarray, voice_margin_db: floa
 
     own_power = frame_power(own)
     rest_power = frame_power(rest)
+    # powers are energies, so dB convert with 10 here (not 20), see docs/voice-loudness.md
     allowed_rest_power = own_power / 10 ** (voice_margin_db / 10)
     singing = own_power > own_power.max() * 1e-4
     factor = numpy.ones(frames)
     too_loud = singing & (rest_power > allowed_rest_power)
+    # the factor multiplies samples, and energy is samples squared, hence the root
     factor[too_loud] = numpy.sqrt(allowed_rest_power[too_loud] / rest_power[too_loud])
-    factor = numpy.maximum(factor, 10 ** (-MAX_BALANCE_REDUCTION_DB / 20))
+    factor = numpy.maximum(factor, db_to_amplitude(-MAX_BALANCE_REDUCTION_DB))
     # lower a little earlier and recover a little later than needed, then smooth
     # the transitions so the other parts don't jump in volume
     padded = numpy.pad(factor, width, mode='edge')
