@@ -10,7 +10,7 @@ RUN cd webapp && \
     npm run build
 
 # Use an official Python runtime as a parent image
-FROM python:3.14-slim-trixie AS base
+FROM python:3.15-slim-trixie AS base
 
 # Install fluidsynth and lame and other system deps
 RUN apt-get update && \
