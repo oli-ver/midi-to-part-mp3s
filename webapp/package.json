@@ -7,7 +7,7 @@
     "postinstall": "npm run build"
   },
   "dependencies": {
-    "jquery": "^4.0.0",
+    "jquery": "^4.1.0",
     "bootstrap": "^5.3.9",
     "opensheetmusicdisplay": "^2.3.1"
   }
